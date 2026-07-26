@@ -5,21 +5,31 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"criticalsys.net/dbchecker/config"
 	_ "github.com/lib/pq"
 )
+
+func init() {
+	RegisterDriver("postgres", func() DB { return &Postgres{} })
+}
 
 type Postgres struct {
 	SQLBase
 }
 
 func (p *Postgres) Connect(ctx context.Context, cfg config.DatabaseConfig, decryptedPassword string) error {
+	dbName := cfg.Name
+	if dbName != "" && !strings.HasPrefix(dbName, "/") {
+		dbName = "/" + dbName
+	}
+
 	dsn := url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(cfg.User, decryptedPassword),
 		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		Path:   cfg.Name,
+		Path:   dbName,
 	}
 
 	query := dsn.Query()
@@ -54,10 +64,6 @@ func (p *Postgres) Connect(ctx context.Context, cfg config.DatabaseConfig, decry
 	if err != nil {
 		return err
 	}
-	p.db = db
+	p.SetDB(db)
 	return nil
-}
-
-func (p *Postgres) Close() error {
-	return p.db.Close()
 }

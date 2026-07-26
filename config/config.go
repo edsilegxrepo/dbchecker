@@ -33,13 +33,12 @@ type Config struct {
 	Databases map[string]DatabaseConfig `yaml:"databases"`
 }
 
-var supportedDBTypes = map[string]struct{}{"mysql": {}, "postgres": {}, "oracle": {}, "sqlserver": {}, "sqlite": {}, "mongodb": {}}
 var supportedTLSModes = map[string]struct{}{"disable": {}, "require": {}, "verify-ca": {}, "verify-full": {}, "": {}}
 
 // Validate checks the configuration for any unsupported or invalid values.
-func (c *Config) Validate() error {
+func (c *Config) Validate(isSupportedType func(string) bool) error {
 	for id, dbConfig := range c.Databases {
-		if _, ok := supportedDBTypes[dbConfig.Type]; !ok {
+		if isSupportedType != nil && !isSupportedType(dbConfig.Type) {
 			return fmt.Errorf("database %q has unsupported type: %s", id, dbConfig.Type)
 		}
 		if _, ok := supportedTLSModes[dbConfig.TLSMode]; !ok {
@@ -51,8 +50,19 @@ func (c *Config) Validate() error {
 
 // LoadConfig reads a YAML configuration file from disk.
 // It uses os.OpenRoot (Go 1.24+) to safely access the file and prevent directory traversal.
-func LoadConfig(configFile string) (*Config, error) {
-	root, err := os.OpenRoot(filepath.Dir(configFile))
+func LoadConfig(configFile string, isSupportedType func(string) bool) (*Config, error) {
+	dir := filepath.Dir(configFile)
+	if dir == "" || dir == "." {
+		absPath, err := filepath.Abs(configFile)
+		if err == nil {
+			dir = filepath.Dir(absPath)
+			configFile = absPath
+		} else {
+			dir = "."
+		}
+	}
+
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open config directory: %w", err)
 	}
@@ -70,7 +80,7 @@ func LoadConfig(configFile string) (*Config, error) {
 		return nil, err
 	}
 
-	if err = config.Validate(); err != nil {
+	if err = config.Validate(isSupportedType); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 

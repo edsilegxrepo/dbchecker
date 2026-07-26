@@ -9,6 +9,10 @@ import (
 	go_ora "github.com/sijms/go-ora/v2"
 )
 
+func init() {
+	RegisterDriver("oracle", func() DB { return &Oracle{} })
+}
+
 type Oracle struct {
 	SQLBase
 }
@@ -37,10 +41,6 @@ func (o *Oracle) Connect(ctx context.Context, cfg config.DatabaseConfig, decrypt
 	if err != nil {
 		return err
 	}
-	o.db = db
+	o.SetDB(db)
 	return nil
-}
-
-func (o *Oracle) Close() error {
-	return o.db.Close()
 }

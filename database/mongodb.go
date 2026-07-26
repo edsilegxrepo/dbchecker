@@ -2,13 +2,19 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"criticalsys.net/dbchecker/config"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"criticalsys.net/dbchecker/config"
 )
+
+func init() {
+	RegisterDriver("mongodb", func() DB { return &MongoDB{} })
+}
 
 // MongoDB implements the DB interface for MongoDB using the v2 driver.
 type MongoDB struct {
@@ -48,12 +54,32 @@ func (m *MongoDB) Connect(ctx context.Context, cfg config.DatabaseConfig, decryp
 }
 
 func (m *MongoDB) Ping(ctx context.Context) error {
+	if m.client == nil {
+		return errors.New("mongodb client not initialized")
+	}
 	return m.client.Ping(ctx, nil)
 }
 
-// HealthCheck for MongoDB lists collection names as a basic check. The query parameter is ignored.
+// HealthCheck executes a custom MongoDB command JSON string (e.g. `{"dbStats": 1}`) if provided,
+// or defaults to listing database collection names.
 func (m *MongoDB) HealthCheck(ctx context.Context, query string) error {
+	if m.client == nil {
+		return errors.New("mongodb client not initialized")
+	}
 	db := m.client.Database(m.database)
+
+	if query != "" {
+		var cmd bson.D
+		if err := bson.UnmarshalExtJSON([]byte(query), true, &cmd); err != nil || len(cmd) == 0 {
+			return fmt.Errorf("invalid mongodb health_query json syntax: %w", err)
+		}
+		res := db.RunCommand(ctx, cmd)
+		if err := res.Err(); err != nil {
+			return fmt.Errorf("mongodb custom command failed: %w", err)
+		}
+		return nil
+	}
+
 	_, err := db.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return fmt.Errorf("mongodb list collections failed: %w", err)
@@ -62,7 +88,8 @@ func (m *MongoDB) HealthCheck(ctx context.Context, query string) error {
 }
 
 func (m *MongoDB) Close() error {
-	// Close does not need a context, but we might want one for graceful shutdown in the future.
-	// For now, we'll use a background context to satisfy the disconnect method.
+	if m.client == nil {
+		return nil
+	}
 	return m.client.Disconnect(context.Background())
 }

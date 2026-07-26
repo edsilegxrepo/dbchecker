@@ -10,6 +10,10 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 )
 
+func init() {
+	RegisterDriver("sqlserver", func() DB { return &SQLServer{} })
+}
+
 type SQLServer struct {
 	SQLBase
 }
@@ -33,6 +37,10 @@ func (s *SQLServer) Connect(ctx context.Context, cfg config.DatabaseConfig, decr
 		return fmt.Errorf("invalid tls_mode for sqlserver: %s", cfg.TLSMode)
 	}
 
+	if cfg.RootCertPath != "" {
+		query.Add("certificate", cfg.RootCertPath)
+	}
+
 	dsn := &url.URL{
 		Scheme:   "sqlserver",
 		User:     url.UserPassword(cfg.User, decryptedPassword),
@@ -44,6 +52,6 @@ func (s *SQLServer) Connect(ctx context.Context, cfg config.DatabaseConfig, decr
 	if err != nil {
 		return err
 	}
-	s.db = db
+	s.SetDB(db)
 	return nil
 }

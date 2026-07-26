@@ -1,48 +1,36 @@
 /*
-Package crypto provides AES-GCM encryption and decryption utilities for sensitive data like passwords.
+Package crypto provides AES-GCM encryption and decryption utilities for sensitive data like passwords,
+leveraging libsecsecrets from secretprotector for key resolution, AES-256-GCM encryption/decryption, and memory hygiene.
 */
 package crypto
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"io"
+	"context"
+	"criticalsys/secretprotector/pkg/libsecsecrets"
 )
 
-// Encrypt takes a plaintext and a secret key, returning the AES-GCM encrypted ciphertext.
-func Encrypt(plaintext []byte, secretKey []byte) ([]byte, error) {
-	block, err := aes.NewCipher(secretKey)
-	if err != nil {
-		return nil, err
+// DefaultKeyEnv is the default environment variable name used for secret key resolution.
+const DefaultKeyEnv = "DB_SECRET_KEY"
+
+// ResolveKey resolves and validates the secret key from raw string, environment variable, or file path.
+func ResolveKey(ctx context.Context, rawKey, envVar, keyFile string) ([]byte, error) {
+	if envVar == "" {
+		envVar = DefaultKeyEnv
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
-	return ciphertext, nil
+	return libsecsecrets.ResolveKey(ctx, rawKey, envVar, keyFile)
 }
 
-// Decrypt takes a ciphertext and a secret key, returning the decrypted plaintext.
-func Decrypt(ciphertext []byte, secretKey []byte) ([]byte, error) {
-	block, err := aes.NewCipher(secretKey)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonceSize := gcm.NonceSize()
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, err
-	}
-	return plaintext, nil
+// Encrypt encrypts a plaintext password using libsecsecrets AES-256-GCM and returns a Base64-encoded string.
+func Encrypt(ctx context.Context, plaintext string, secretKey []byte) (string, error) {
+	return libsecsecrets.Encrypt(ctx, plaintext, secretKey)
+}
+
+// Decrypt decrypts a Base64-encoded encrypted password using libsecsecrets AES-256-GCM and returns the plaintext.
+func Decrypt(ctx context.Context, encryptedPassword string, secretKey []byte) (string, error) {
+	return libsecsecrets.Decrypt(ctx, encryptedPassword, secretKey)
+}
+
+// ZeroBuffer zeroes sensitive byte slices in memory to minimize exposure.
+func ZeroBuffer(b []byte) {
+	libsecsecrets.ZeroBuffer(b)
 }

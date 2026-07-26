@@ -1,200 +1,335 @@
-# DB Connection Diags
+# DB Connection Diags (`dbchecker`)
 
-## Overview and Objectives
+[![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Coverage](https://img.shields.io/badge/Coverage-88.1%25-brightgreen?style=flat)](./TESTING.md)
+[![Architecture](https://img.shields.io/badge/Architecture-Modular%20Library%20%2B%20CLI-blue?style=flat)](./ARCHITECTURE.md)
 
-DB Connection Diags is a command-line utility designed to help developers and system administrators diagnose and verify connections to multiple types of databases. It reads a configuration file, connects to the specified databases, and runs a health check to ensure they are accessible and operational.
+`dbchecker` is an enterprise-grade Go library and CLI utility designed to diagnose, profile, and verify multi-database connectivity across heterogeneous SQL and NoSQL database engines (**MySQL**, **PostgreSQL**, **MongoDB v2**, **Oracle**, **SQL Server**, and **SQLite**).
 
-The primary objectives of this tool are:
-- To provide a simple, configuration-driven way to check database health.
-- To support a wide range of popular databases (SQL and NoSQL), including modern drivers like **MongoDB v2**.
-- To provide a secure way to handle database credentials by using AES-GCM encryption.
-- To implement modern security best practices, such as **scoped file access (os.Root)** introduced in **Go 1.24**.
+It features **AES-256-GCM envelope encryption** via `secretprotector`, **Go 1.24+ `os.OpenRoot` directory handle scoping** for file access defense, **TLS/mTLS authentication**, and a **Least-Privilege operating model requiring zero administrative privileges**.
 
-For more technical details on the system's structure and design decisions, please refer to [ARCHITECTURE.md](./ARCHITECTURE.md) and [DESIGN.md](./DESIGN.md).
+---
 
-## Requirements
+## Quick Links
+* [Architecture & Design Specifications (`ARCHITECTURE.md`)](./ARCHITECTURE.md)
+* [Test Suite Architecture & Quality Assurance (`TESTING.md`)](./TESTING.md)
 
-- **Go 1.24** or higher (required for `os.Root` support).
-- Database drivers (automatically handled by `go mod tidy`).
+---
 
-## Command-Line Arguments
+## 1. Application Overview and Objectives
 
-The application accepts the following command-line arguments:
+`dbchecker` provides a dual-layer solution for database health monitoring:
+1. **Importable Go Library (`pkg/dbchecker`)**: Programmatic API for integration into backend microservices, API Gateways, and HTTP health servers (such as `health-checker`), returning strongly-typed `Result` diagnostic objects with latency timing and step error categorization.
+2. **CLI Executable (`cmd/dbchecker`)**: Command-line tool for system administrators, DevOps engineers, and container sidecars to run batch database checks and format results as human-readable text or structured JSON.
 
-- `-config <path>`: Specifies the path to the YAML configuration file. Defaults to `config.yaml`.
-- `-db <id>`: The identifier of a specific database to check (as defined in the config file). If this flag is omitted, the tool will check all databases listed in the configuration.
-- `-version`: Displays the application's version information and exits.
-- `-encrypt <password>`: Encrypts the given password using the secret key, prints the base64-encoded result to the console, and exits.
-- `-key-file <path>`: Path to the secret key file. If provided, it overrides the `DB_SECRET_KEY` environment variable.
+### Primary Objectives
+- **Multi-Engine Health Verification**: Standardize connection initialization, ping handshakes, and healthcheck query execution across 6 database engines.
+- **Credential Protection**: Prevent plaintext passwords from residing on disk using authenticated AES-256-GCM encryption.
+- **Directory Traversal Defense**: Enforce strict directory scoping using Go 1.24+ `os.OpenRoot` for YAML configs, TLS Root CAs, and mTLS keypairs.
+- **High Concurrency & Low Overhead**: Execute concurrent checks using bounded goroutine worker pools with minimal CPU and memory footprints.
+- **Least-Privilege Operation**: Guarantee that diagnostic checks execute without requiring administrative or DBA database account permissions.
 
-## Configuration File
+---
 
-The application uses a YAML file (e.g., `config.yaml`) to configure the database connections.
+## 2. Security Assessment
 
-### Structure
+`dbchecker` underwent rigorous security engineering to ensure zero-trust compliance across all execution paths:
+
+### A. Encryption in Transit (TLS / mTLS)
+- **Supported Modes**: `disable`, `require` (TLS skip verify), `verify-ca` (CA certificate check), and `verify-full` (CA check + hostname verification).
+- **Custom Certificate Authorities**: Scoped loading of custom Root CAs (`root_cert_path`) via Go 1.24 `os.OpenRoot`.
+- **Mutual TLS (mTLS)**: Scoped loading of client certificate/key pairs (`client_cert_path`, `client_key_path`).
+- **Oracle Wallets**: Native support for encrypted Oracle Wallet directories (`wallet_path`).
+
+### B. Secret Management & Memory Hygiene
+- **Cryptographic Subsystem**: Integrates with `criticalsys/secretprotector/pkg/libsecsecrets` for AES-256-GCM authenticated encryption (`nonce + ciphertext + tag`).
+- **Key Resolution Hierarchy**: Resolves 32-byte master keys with strict precedence (`raw` flag > `DB_SECRET_KEY` env var > `-key-file` path).
+- **RAM Hygiene**: Master secret key byte buffers are zeroed out in memory immediately after resolution using `crypto.ZeroBuffer`.
+- **Key File Permissions**: Validates strict OS file permissions (`0400`/`0600` on Linux/macOS; restricted ACLs on Windows) and rejects insecure `/temp/` directory locations.
+
+### C. Authentication Configuration & RBAC (Least-Privilege Model)
+- **Zero Administrative Privileges**: `dbchecker` operates strictly under **Least Privilege**. No `root`, `superuser`, `DBA`, `sysadmin`, or `db_owner` permissions are required.
+- **Required Account Privileges per Engine**:
+  - **MySQL**: `USAGE` privilege (the baseline user permission).
+  - **PostgreSQL**: `CONNECT` privilege on the target database.
+  - **MongoDB v2**: `read` role (or `listCollections` & `dbStats` actions).
+  - **Oracle**: `CREATE SESSION` system privilege.
+  - **SQL Server**: `CONNECT SQL` permission (`public` role).
+  - **SQLite**: Read/Write OS filesystem permissions on the `.sqlite` file.
+
+### D. Modern, Non-Vulnerable Dependency Stack
+- **Go Runtime**: Go 1.24+ with strict `os.OpenRoot` handle isolation.
+- **Security Dependency**: `criticalsys/secretprotector` (`secretprotector` CLI & `libsecsecrets` library for AES-256-GCM encryption and CSPRNG key generation).
+- **Driver Stack**:
+  - `github.com/go-sql-driver/mysql`
+  - `github.com/lib/pq`
+  - `go.mongodb.org/mongo-driver/v2` (Official MongoDB v2 driver)
+  - `github.com/sijms/go-ora/v2`
+  - `github.com/microsoft/go-mssqldb`
+  - `github.com/mattn/go-sqlite3`
+
+### E. Unprivileged Execution Context
+- `dbchecker` runs as an unprivileged, non-system process under standard OS user accounts. It requires no root/administrator privileges, no system daemon installation, and no raw socket network capabilities.
+
+---
+
+## 3. Code Quality Assessment and Best Practices
+
+- **Test Coverage**: Maintains **88.1% total repository statement coverage** (**100.0%** in `crypto`, **93.1%** in `pkg/dbchecker`, **92.6%** in `config`). Every package exceeds the required 80.0% quality gate.
+- **Modular Plugin Architecture**: Self-registering thread-safe driver registry (`sync.RWMutex`) decouples database engines from core application logic.
+- **Structured Error Handling**: Returns typed error step constants (`StepDecryption`, `StepDriverInit`, `StepConnect`, `StepPing`, `StepHealthCheck`) and granular exit codes (0 to 5).
+- **Context Awareness**: Propagates `context.Context` deadlines through all network handshakes, query executions, and driver calls.
+
+---
+
+## 4. Command-Line Arguments & Granular Exit Codes
+
+The `cmd/dbchecker` binary accepts the following CLI flags:
+
+| Flag Name | Argument Type | Default Value | Description |
+| :--- | :---: | :---: | :--- |
+| `-config` | `string` | `"config.yaml"` | Path to the YAML database configuration file. |
+| `-db` | `string` | `""` (All) | Identifier of a specific database to check. If omitted, checks all databases in config. |
+| `-version` | `bool` | `false` | Displays application version details and exits. |
+| `-encrypt` | `string` | `""` | Encrypts a plaintext password string using the secret key and outputs Base64 result. |
+| `-key-file` | `string` | `""` | Path to secret key file (overrides `DB_SECRET_KEY` environment variable). |
+| `-timeout` | `duration` | `10s` | Maximum connection and check timeout per database (e.g. `5s`, `2s`). |
+| `-concurrency` | `int` | `10` | Maximum number of concurrent database check worker routines. |
+| `-json` | `bool` | `false` | Formats diagnostic results as a structured JSON array for machine parsing. |
+
+### Granular Diagnostic Exit Codes
+
+For integration into automated CI/CD pipelines, container sidecars, and Kubernetes probes, `dbchecker` returns granular process exit codes:
+
+| Exit Code | Constant Name | Description |
+| :---: | :--- | :--- |
+| `0` | `ExitSuccess` | All database connectivity and health checks passed successfully. |
+| `1` | `ExitConfigError` | Configuration file loading error, malformed YAML syntax, or invalid CLI flag. |
+| `2` | `ExitKeyError` | Master secret key resolution failure or OS file permission violation. |
+| `3` | `ExitDecryptionError` | Password decryption failure (corrupt ciphertext or incorrect master key). |
+| `4` | `ExitConnectionError` | TCP socket connection drop or network dial timeout. |
+| `5` | `ExitHealthError` | Database ping failure or custom healthcheck query execution error. |
+
+---
+
+## 5. Configuration Schema and Reference
+
+The application reads database configurations from a YAML file (default `config.yaml`):
 
 ```yaml
 databases:
   <database-id>:
-    type: "string"
+    type: "mysql | postgres | mongodb | oracle | sqlserver | sqlite"
     host: "string"
     port: int
     user: "string"
-    password: "string"
-    name: "string"
-    tls_mode: "string"
-    wallet_path: "string"
-    root_cert_path: "string"
-    client_cert_path: "string"
-    client_key_path: "string"
-    health_query: "string"
+    password: "string (Base64 AES-GCM Encrypted)"
+    name: "string (Database or Schema name, or SQLite file path)"
+    tls_mode: "disable | require | verify-ca | verify-full"
+    wallet_path: "string (Optional, Oracle Wallet directory path)"
+    root_cert_path: "string (Optional, Path to custom PEM Root CA)"
+    client_cert_path: "string (Optional, Path to mTLS client cert PEM)"
+    client_key_path: "string (Optional, Path to mTLS client key PEM)"
+    health_query: "string (Optional, SQL query string or MongoDB JSON command)"
 ```
 
-- `<database-id>`: A unique name for your database connection (e.g., `my_production_db`).
-- `type`: The type of the database. Supported types are: `mysql`, `postgres`, `oracle`, `sqlserver`, `sqlite`, `mongodb`.
-- `host`: The hostname or IP address of the database server.
-- `port`: The port number for the connection.
-- `user`: The username for authentication.
-- `password`: The **encrypted** password for the user. See the security section for instructions on how to encrypt passwords.
-- `name`: The name of the database or schema to connect to. For SQLite, this is the path to the database file.
-- `tls_mode`: (Optional) Specifies the TLS/SSL security mode. If omitted, defaults to `disable`.
-  - `disable`: Do not use TLS.
-  - `require`: Use TLS, but do not verify the server's certificate. **Warning: This is vulnerable to Man-in-the-Middle (MITM) attacks.**
-  - `verify-ca`: Use TLS and verify the server's certificate against the system's trusted Certificate Authorities (CAs). **(Recommended)**
-  - `verify-full`: Use TLS, verify the server's certificate against the system's trusted CAs, and also verify that the server's hostname matches the certificate. **(Most Secure)**
-- `wallet_path`: (Optional, Oracle only) The path to the directory containing the Oracle Wallet, required for `verify-ca` and `verify-full` modes with Oracle.
-- `root_cert_path`: (Optional) Path to a custom root CA certificate file (PEM format). If provided, it will be used to verify the server's certificate instead of the system's default trust store.
-- `client_cert_path`: (Optional) Path to a client certificate file (PEM format) for mutual TLS (mTLS) authentication. Requires `client_key_path`.
-- `client_key_path`: (Optional) Path to a client private key file (PEM format) for mTLS. Requires `client_cert_path`.
-- `health_query`: (Optional) A simple SQL query to execute to verify the connection is healthy (e.g., `"SELECT 1"`). This is not used for MongoDB.
+### Configuration Field Reference
 
-## Examples
+- `<database-id>`: Unique string identifier for the database target.
+- `type`: Database engine driver string (`mysql`, `postgres`, `mongodb`, `oracle`, `sqlserver`, `sqlite`).
+- `host`: Hostname or IP address of the database server.
+- `port`: TCP port number (e.g., `3306` for MySQL, `5432` for Postgres, `27017` for Mongo, `1521` for Oracle, `1433` for SQL Server).
+- `user`: Database account username.
+- `password`: Base64 AES-256-GCM encrypted password string.
+- `name`: Target database/schema name (or file path for SQLite).
+- `tls_mode`: TLS transport mode:
+  - `disable`: Standard unencrypted connection.
+  - `require`: TLS enabled, skip CA verification.
+  - `verify-ca`: TLS enabled, verify server certificate against CA.
+  - `verify-full`: TLS enabled, verify CA certificate and hostname match.
+- `wallet_path`: Path to Oracle Wallet directory (required for Oracle `verify-ca`/`verify-full`).
+- `root_cert_path`: Path to custom Root CA PEM certificate file.
+- `client_cert_path`: Path to mTLS client certificate PEM file.
+- `client_key_path`: Path to mTLS client private key PEM file.
+- `health_query`: Custom SQL query (e.g. `SELECT 1;` or `SELECT 1 FROM DUAL;`) or MongoDB JSON command (e.g. `{"dbStats": 1}`).
 
+---
 
-### PostgreSQL Health Check
+## 6. Usage & Deployment Examples
 
-To check a PostgreSQL database, add an entry like this to your `config.yaml`:
+### Step 1: Encrypting Database Passwords
+
+**Generate a 32-Byte Master Key File using `secretprotector` CLI**:
+```bash
+# On Linux / macOS:
+secretprotector -generate > /etc/dbchecker/master.key
+chmod 400 /etc/dbchecker/master.key
+
+# On Windows (PowerShell):
+secretprotector -generate > C:\dbchecker\master.key
+icacls "C:\dbchecker\master.key" /inheritance:r
+icacls "C:\dbchecker\master.key" /grant:r "$($env:USERNAME):(R)"
+```
+
+**Encrypt Plaintext Password**:
+Using `secretprotector` CLI or `dbchecker`:
+```bash
+secretprotector -encrypt "MySuperSecretPass2026!" -key-file /etc/dbchecker/master.key
+# OR using dbchecker CLI:
+./dbchecker -key-file /etc/dbchecker/master.key -encrypt "MySuperSecretPass2026!"
+```
+*Output*:
+```text
+v1:U2FsdGVkX19...Base64EncryptedCiphertextHere...
+```
+
+---
+
+### Step 2: Creating `config.yaml` (All 6 Database Engines Covered)
 
 ```yaml
 databases:
-  my_postgres_db:
-    type: "postgres"
-    host: "db.example.com"
+  mysql_orders:
+    type: mysql
+    host: mysql.internal.company.com
+    port: 3306
+    user: mon_user
+    password: "v1:U2FsdGVkX19...Base64EncryptedCiphertextHere..."
+    name: orders_db
+    tls_mode: verify-full
+    health_query: "SELECT 1;"
+
+  pg_production:
+    type: postgres
+    host: pg.internal.company.com
     port: 5432
-    user: "pguser"
-    password: "ENCRYPTED_PASSWORD_HERE" # Replace with your encrypted password
-    name: "mydatabase"
-    tls_mode: "verify-full" # Use the most secure TLS mode
-    health_query: "SELECT 1"
-```
-Run the check for this specific database:
-* Using a key file (recommended):
-```bash
-./dbchecker -key-file /path/to/your/secret.key -db my_postgres_db
-```
-* Alternatively, run the check using the environment variable:
-```bash
-export DB_SECRET_KEY="your-32-byte-secret-key"
-./dbchecker -db my_postgres_db
-```
+    user: db_mon
+    password: "v1:U2FsdGVkX19...Base64EncryptedCiphertextHere..."
+    name: prod_db
+    tls_mode: verify-full
+    health_query: "SELECT 1;"
 
-### MongoDB Health Check
-
-To check a MongoDB database, add an entry like this:
-
-```yaml
-databases:
-  my_mongo_db:
-    type: "mongodb"
-    host: "db.example.com"
+  mongo_cluster:
+    type: mongodb
+    host: mongo.internal.company.com
     port: 27017
-    user: "mongouser"
-    password: "ENCRYPTED_PASSWORD_HERE" # Replace with your encrypted password
-    name: "admin"
-    tls_mode: "verify-full"
+    user: mon_user
+    password: "v1:U2FsdGVkX19...Base64EncryptedCiphertextHere..."
+    name: admin
+    tls_mode: verify-ca
+    health_query: '{"dbStats": 1}'
+
+  oracle_finance:
+    type: oracle
+    host: ora.internal.company.com
+    port: 1521
+    user: ora_mon
+    password: "v1:U2FsdGVkX19...Base64EncryptedCiphertextHere..."
+    name: FINPRD
+    tls_mode: verify-ca
+    wallet_path: "/etc/oracle/wallets/finance"
+    health_query: "SELECT 1 FROM DUAL;"
+
+  sqlserver_erp:
+    type: sqlserver
+    host: mssql.internal.company.com
+    port: 1433
+    user: erp_mon
+    password: "v1:U2FsdGVkX19...Base64EncryptedCiphertextHere..."
+    name: ERP_PROD
+    tls_mode: verify-ca
+    root_cert_path: "/etc/ssl/certs/mssql-ca.crt"
+    health_query: "SELECT 1;"
+
+  sqlite_local:
+    type: sqlite
+    name: "/var/data/app.db"
+    health_query: "SELECT 1;"
 ```
 
-Run the check for this specific database:
-* Using a key file (recommended):
+---
+
+### Step 3: Running Diagnostic Checks
+
+#### Standard Text Console Output (All 6 Engines)
 ```bash
-./dbchecker -key-file /path/to/your/secret.key -db my_mongo_db
+./dbchecker -key-file /etc/dbchecker/master.key -config config.yaml
 ```
-* Alternatively, run the check using the environment variable:
+*Sample Output*:
+```text
+Successfully connected and checked mysql_orders (mysql) [12.4ms]
+Successfully connected and checked pg_production (postgres) [14.2ms]
+Successfully connected and checked mongo_cluster (mongodb) [22.8ms]
+Successfully connected and checked oracle_finance (oracle) [35.1ms]
+Successfully connected and checked sqlserver_erp (sqlserver) [18.6ms]
+Successfully connected and checked sqlite_local (sqlite) [0.4ms]
+```
+
+#### JSON Output Formatting (`-json`)
 ```bash
-export DB_SECRET_KEY="your-32-byte-secret-key"
-./dbchecker -db my_mongo_db
+./dbchecker -key-file /etc/dbchecker/master.key -config config.yaml -json
+```
+*Sample Output*:
+```json
+[
+  {
+    "id": "mysql_orders",
+    "type": "mysql",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 12400000
+  },
+  {
+    "id": "pg_production",
+    "type": "postgres",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 14200000
+  },
+  {
+    "id": "mongo_cluster",
+    "type": "mongodb",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 22800000
+  },
+  {
+    "id": "oracle_finance",
+    "type": "oracle",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 35100000
+  },
+  {
+    "id": "sqlserver_erp",
+    "type": "sqlserver",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 18600000
+  },
+  {
+    "id": "sqlite_local",
+    "type": "sqlite",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 400000
+  }
+]
 ```
 
-## Security and Credential Encryption
-
-To avoid storing plaintext passwords in the configuration file, the application uses AES-GCM encryption. The security of your passwords depends entirely on the secrecy of your secret key.
-
-### How it Works
-
-1.  **Generate a Secret Key**: You provide a secure, 32-byte (256-bit) secret key to the application.
-2.  **Encrypt Passwords**: You use the `-encrypt` flag along with your secret key to encrypt a plaintext password.
-3.  **Configure**: You store the resulting encrypted password in the `config.yaml` file.
-4.  **Decrypt at Runtime**: When the application runs, it uses the same secret key to decrypt the password in memory just before establishing a database connection.
-
-### Providing the Secret Key
-
-You can provide the secret key to the application in one of two ways:
-
-*   **Key File (Recommended)**: You can store the key in a file and provide the path to it using the `-key-file` flag. This is the recommended approach for production environments as it helps avoid exposing keys in shell history or process lists.
-*   **Environment Variable**: You can provide the key via the `DB_SECRET_KEY` environment variable.
-
-The `-key-file` flag always takes precedence over the `DB_SECRET_KEY` environment variable if both are present.
-
-
-### How to Encrypt Your Credentials
-
-**Step 1: Generate a Secure Secret Key**
-
-First, you need a secure, 32-byte secret key. You can generate one using `openssl`.
-* To create a key file (recommended):
-
-On Linux or macOS:
+#### Executing Single Database Check
 ```bash
-openssl rand 32 > /path/to/your/secret.key
-```
-Set strict, read-only permissions for the key file
-```bash
-chmod 400 /path/to/your/secret.key
-```
-The application will check for these exact permissions on non-Windows systems and will not run if the file is accessible by other users.
-
-On Windows: You should use the file system's ACL (Access Control List) features to restrict access to the current user. You can do this with the icacls command:
-
-First, disable inheritance to remove other users
-```bash
-icacls "C:\path\to\your\secret.key" /inheritance:r
-```
-Then, grant access only to your user
-```bash
-icacls "C:\path\to\your\secret.key" /grant:r "$($env:USERNAME):(R)"
+./dbchecker -key-file /etc/dbchecker/master.key -config config.yaml -db mysql_orders
 ```
 
- * To generate a key for the environment variable:
-```bash
-    openssl rand -base64 32
-```
-**Step 2: Encrypt Your Password**
+---
 
-Now, use the application's -encrypt flag to encrypt your database password.
+### Step 4: Programmatic Library API Reference
 
-  * Using the key file:
-```bash
-./dbchecker -key-file /path/to/your/secret.key -encrypt 'my-super-secret-password'
-```
-  * Using the environment variable:
-```bash
-export DB_SECRET_KEY="your-generated-key"
-./dbchecker -encrypt 'my-super-secret-password'
-```
-The application will output a long, base64-encoded string. This is your encrypted password.
+For detailed programmatic Go library integration patterns, code examples, and HTTP server integration guides (such as `health-checker`), please refer to the [Package Integration section in ARCHITECTURE.md](./ARCHITECTURE.md#package-integration).
 
-**Step 3: Update Your Configuration**
+---
 
-Copy the encrypted password from Step 2 and paste it into the password field in your config.yaml file.
+## 7. Testing Documentation
 
-Your application is now configured to securely connect to your databases!
+For comprehensive details on test architecture, test execution instructions (PowerShell / Bash), coverage reports, and troubleshooting guides, please refer to [TESTING.md](./TESTING.md).

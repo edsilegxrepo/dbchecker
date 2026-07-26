@@ -8,6 +8,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+func init() {
+	RegisterDriver("sqlite", func() DB { return &SQLite{} })
+}
+
 type SQLite struct {
 	SQLBase
 }
@@ -17,10 +21,6 @@ func (s *SQLite) Connect(ctx context.Context, cfg config.DatabaseConfig, decrypt
 	if err != nil {
 		return err
 	}
-	s.db = db
+	s.SetDB(db)
 	return nil
-}
-
-func (s *SQLite) Close() error {
-	return s.db.Close()
 }
