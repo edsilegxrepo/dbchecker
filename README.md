@@ -1,7 +1,7 @@
 # DB Connection Diags (`dbchecker`)
 
 [![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?style=flat&logo=go)](https://golang.org)
-[![Coverage](https://img.shields.io/badge/Coverage-88.1%25-brightgreen?style=flat)](./TESTING.md)
+[![Coverage](https://img.shields.io/badge/Coverage-87.8%25-brightgreen?style=flat)](./TESTING.md)
 [![Architecture](https://img.shields.io/badge/Architecture-Modular%20Library%20%2B%20CLI-blue?style=flat)](./ARCHITECTURE.md)
 
 `dbchecker` is an enterprise-grade Go library and CLI utility designed to diagnose, profile, and verify multi-database connectivity across heterogeneous SQL and NoSQL database engines (**MySQL**, **PostgreSQL**, **MongoDB v2**, **Oracle**, **SQL Server**, and **SQLite**).

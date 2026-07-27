@@ -15,7 +15,7 @@ The `dbchecker` test suite is built according to the following core software eng
   1. **Unit Tests**: Isolated logic testing for config validation, crypto resolution, envelope encryption/decryption, and driver factory instantiation.
   2. **Mock Driver Integration Tests**: Custom `MockTestDB` and `MockLibDB` drivers simulate network drops, ping failures, query syntax errors, and decryption failures.
   3. **Live E2E CLI Integration Tests**: Full binary lifecycle testing (`RunAppCLI`) verifying key generation, password encryption, YAML scoping via `os.OpenRoot`, and live SQLite database execution.
-  4. **Opt-in Remote Cluster Integration Tests**: Environmental harness for testing against live remote MySQL, PostgreSQL, and MongoDB database clusters.
+  4. **Live Container & mTLS Integration Tests**: Automated harness for spinning up ephemeral **PostgreSQL 18**, **MySQL 8.4**, **MongoDB 8.0**, **MSSQL (Azure SQL Edge)**, and **Oracle 21c Slim** containers (via WSL on Windows or native Docker on Linux) with mTLS certificate verification.
 
 ---
 
@@ -71,47 +71,99 @@ graph TD
 * **Go Compiler**: Go 1.24+ (required for `os.OpenRoot` directory scoping features).
 * **Dependencies**: Standard Go toolchain dependencies (`criticalsys/secretprotector/pkg/libsecsecrets`, database drivers).
 * **OS Compatibility**: Fully supported on Windows (PowerShell / CMD) and Linux / macOS (Bash / Zsh).
+* **Docker Engine (For Live Container Integration Tests)**:
+  * **Windows (WSL Exclusively)**:
+    * Require WSL2 installed (`wsl --status`).
+    * **Option A (Native Docker Engine inside WSL RHEL 9 / Enterprise Linux)**:
+      1. Open WSL terminal (`wsl`) and install Docker repository & packages:
+         ```bash
+         sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+         sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+         sudo usermod -aG docker $USER
+         ```
+      2. Enable systemd in `/etc/wsl.conf`:
+         ```bash
+         sudo bash -c 'echo -e "[boot]\nsystemd=true" > /etc/wsl.conf'
+         ```
+      3. In Windows PowerShell / CMD, restart WSL:
+         ```powershell
+         wsl --shutdown
+         ```
+      4. Re-open WSL terminal (`wsl`) and start Docker via systemd:
+         ```bash
+         sudo systemctl enable --now docker
+         ```
+      5. Verify readiness in PowerShell/CMD: `wsl docker info`.
+    * **Option B (Native Docker Engine inside WSL Ubuntu/Debian)**:
+      1. Open WSL terminal (`wsl`) and run:
+         ```bash
+         sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg
+         sudo install -m 0755 -d /etc/apt/keyrings
+         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+         sudo chmod a+r /etc/apt/keyrings/docker.gpg
+         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+         sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+         sudo usermod -aG docker $USER && sudo service docker start
+         ```
+      2. Verify in PowerShell/CMD: `wsl docker info`.
+    * **Option C (Docker Desktop for Windows)**:
+      * Install Docker Desktop, enable *"Use the WSL 2 based engine"*, and toggle on your RHEL 9 WSL distro in Settings -> Resources -> WSL Integration.
+  * **Linux (Native Docker)**:
+    * Docker Engine service running natively (`sudo systemctl status docker`).
+    * Current user added to `docker` group (`sudo usermod -aG docker $USER`).
+    * Test readiness in terminal: `docker info`.
+  * **Automatic Fallback & Teardown**:
+    * If Docker or WSL is not running when tests execute, `TestLiveDockerContainers` automatically invokes `t.Skip()` to ensure non-blocking test execution across environments.
+    * **Full Ephemeral & Targeted Cleanup**:
+      * At test startup, a pre-test targeted prune (`docker container prune -f --filter name=dbchecker-test`) automatically cleans up any zombie containers left over from previously interrupted shell sessions.
+      * Upon test completion (or failure), Go's `t.Cleanup()` hook automatically executes `docker rm -f <container>` AND `docker rmi -f <image>` to leave **0 residual containers and 0 residual images** on host storage. (Set `PRESERVE_DOCKER_IMAGES=1` environment variable if you wish to keep downloaded container images cached locally during rapid development).
 
 ### Environment Variables
 | Environment Variable | Description | Required For |
 | :--- | :--- | :--- |
 | `DB_SECRET_KEY` | 64-character hex master key used for AES-GCM password encryption/decryption. | CLI execution & unit tests |
+| `PRESERVE_DOCKER_IMAGES` | Set to `1` to preserve downloaded Docker container images locally after test teardown for fast local iteration. | Live Docker container tests (`live_docker_test.go` & `live_mtls_test.go`) |
 | `LIVE_MYSQL_HOST`, `LIVE_MYSQL_USER`, `LIVE_MYSQL_PASS`, `LIVE_MYSQL_DB` | Connection details for live remote MySQL server integration tests. | Opt-in live integration tests |
 | `LIVE_POSTGRES_HOST`, `LIVE_POSTGRES_USER`, `LIVE_POSTGRES_PASS`, `LIVE_POSTGRES_DB` | Connection details for live remote PostgreSQL server integration tests. | Opt-in live integration tests |
 | `LIVE_MONGO_HOST`, `LIVE_MONGO_USER`, `LIVE_MONGO_PASS`, `LIVE_MONGO_DB` | Connection details for live remote MongoDB cluster integration tests. | Opt-in live integration tests |
 
 ---
 
-## 4. List of Tests
+## 4. Comprehensive List of Tests (Grouped by Category)
 
-| Logical Group | Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
+| Category | Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
 | :--- | :--- | :--- | :--- |
-| **Crypto** | `TestCryptoIntegration` | Verifies key resolution from env/raw strings, AES-256-GCM encryption/decryption, Base64 formatting, and RAM buffer zeroing via `crypto.ZeroBuffer`. | **PASS**: Decrypted plaintext matches original; buffer zeroed. **FAIL**: Ciphertext mismatch or zeroing error. |
-| **Config** | `TestLoadConfigAndValidation` | Verifies YAML config unmarshaling, single filename path resolution, `os.OpenRoot` scoping, and driver validation callback execution. | **PASS**: Valid config returned. **FAIL**: Unmarshaling or validation error. |
-| **Config** | `TestInvalidConfigValidation` | Verifies rejection of configurations containing unsupported database driver types or invalid TLS mode strings. | **PASS**: Error returned. **FAIL**: Invalid config accepted. |
-| **Config** | `TestLoadConfigErrors` | Verifies graceful error handling for missing YAML config files, empty paths, or unreadable directories. | **PASS**: Specific error returned. **FAIL**: Panic or nil error. |
-| **Database** | `TestFactorySupportedDrivers` | Tests dynamic instantiation of all 6 supported database drivers (`mysql`, `postgres`, `oracle`, `sqlserver`, `sqlite`, `mongodb`) via driver registry. | **PASS**: Driver instance created. **FAIL**: Driver lookup error. |
-| **Database** | `TestFactoryUnsupportedDriver` | Tests error handling when requesting an unregistered database driver type string. | **PASS**: Unsupported driver error. **FAIL**: Non-nil driver returned. |
-| **Database** | `TestIsSupportedFunction` | Tests `database.IsSupported` verification callback across supported and unsupported driver strings. | **PASS**: True for supported engines, false otherwise. **FAIL**: Incorrect driver validation. |
-| **Database** | `TestNilSafetyOnUninitializedDrivers` | Verifies that calling `Ping()` or `HealthCheck()` on uninitialized driver structs returns an error without panicking. | **PASS**: Error returned without panic. **FAIL**: Runtime panic occurs. |
-| **Database** | `TestSQLiteDriverLifecycle` | Tests real SQLite database engine lifecycle: `Connect`, `Ping`, `HealthCheck` (`SELECT 1;`), invalid SQL syntax rejection, and `Close`. | **PASS**: Queries succeed; invalid SQL returns error. **FAIL**: Execution error. |
-| **Database** | `TestDriverConnectValidDSNs` | Verifies DSN format string construction and connection options across all supported database drivers. | **PASS**: DSN formatted correctly. **FAIL**: DSN syntax error. |
-| **Database** | `TestDriverConnectVariousTLSModes` | Verifies TLS configuration generation for `disable`, `require`, `verify-ca`, and `verify-full` modes across drivers. | **PASS**: TLS config created. **FAIL**: Invalid TLS options generated. |
-| **Database** | `TestDriverConnectInvalidTLSModes` | Tests rejection of invalid or unknown `tls_mode` strings across all database drivers. | **PASS**: Validation error returned. **FAIL**: Invalid mode accepted. |
-| **Database** | `TestOracleDriverWalletValidation` | Verifies that Oracle driver requires a non-empty `WalletPath` when using `verify-ca` or `verify-full` TLS modes. | **PASS**: Error returned when wallet path missing. **FAIL**: Wallet validation skipped. |
-| **Database** | `TestBuildTLSConfigModes` | Tests `buildTLSConfig` helper across all TLS modes, server names, and skip-verify flags. | **PASS**: `tls.Config` struct generated correctly. **FAIL**: Option mismatch. |
-| **Database** | `TestBuildTLSConfigWithCertificates` | Generates in-memory RSA keypair and x509 cert to test loading custom Root CAs and mTLS client cert/key pairs using `readScopedFile`. | **PASS**: Certs loaded into `tls.Config`. **FAIL**: Certificate parsing error. |
-| **Database** | `TestBuildTLSConfigErrors` | Tests error handling when mTLS key/cert pairs are mismatched or missing. | **PASS**: Error returned. **FAIL**: Invalid cert pair accepted. |
-| **Database** | `TestScopedFileReadErrors` | Verifies `readScopedFile` error handling when attempting to read non-existent certificate files within valid scoped directories. | **PASS**: Scoped file error returned. **FAIL**: Path escape or unhandled error. |
-| **Database** | `TestRegisterDriverNilPanic` | Verifies that attempting to register a `nil` driver factory function triggers a panic during `init()`. | **PASS**: Panic recovered as expected. **FAIL**: Nil factory registered. |
-| **Library API** | `TestLibraryCheck` | Tests programmatic `dbchecker.Check` library API across success, decryption fail, driver init fail, connect fail, ping fail, and healthcheck fail steps. | **PASS**: Correct `Result` and `FailedStep` returned. **FAIL**: Step mismatch. |
-| **Library API** | `TestLibraryCheckAll` | Tests concurrent batch check execution via `dbchecker.CheckAll` using functional options (`WithTimeout`, `WithConcurrency`), nil config, and empty config inputs. | **PASS**: Results array returned matching input DBs. **FAIL**: Concurrency race or missing results. |
-| **Library API** | `TestRunAppCLIInPkg` | Tests `dbchecker.RunAppCLI` execution, flag parsing, error path exit codes, and `-json` output formatting within library package. | **PASS**: Granular exit codes (0 to 5) match expected errors. **FAIL**: Incorrect exit code. |
-| **CLI (Main)** | `TestCheckDatabaseLifecycle` | Tests `main.go` lifecycle execution helper across mock driver instances. | **PASS**: Clean exit code 0 or 1. **FAIL**: Uncaught exception. |
-| **CLI (Main)** | `TestRunAppCLIExecution` | Tests root `runApp` CLI execution for `-version`, `-encrypt`, `-config`, `-db`, `-timeout`, `-concurrency`, and exit codes. | **PASS**: Output streams and exit codes match expected flags. **FAIL**: Flag error. |
-| **CLI (Package)** | `TestCMDAppCLIExecution` | Tests `cmd/dbchecker/main.go` binary execution wrapper, exit code evaluation, and `-json` output formatting. | **PASS**: Exit codes and JSON output valid. **FAIL**: Binary execution error. |
-| **Live E2E** | `TestLiveEndToEndCLI` | End-to-end integration test: generates CSPRNG key via secretprotector, encrypts password via `-encrypt`, creates YAML config, and runs live SQLite query execution. | **PASS**: Full E2E check completes with stdout confirmation. **FAIL**: E2E pipeline break. |
-| **Live Remote** | `TestLiveExternalDBIntegration` | Opt-in integration test harness that connects, pings, and queries live remote MySQL, Postgres, and MongoDB servers when `LIVE_*` env vars are configured. | **PASS**: Real network connection and query succeed. **SKIP**: Skipped if env vars not set. |
+| **1. Crypto & Key Resolution** | `TestCryptoIntegration` | Verifies master key resolution from env/raw strings, AES-256-GCM envelope encryption/decryption, Base64 formatting, and RAM buffer zeroing via `crypto.ZeroBuffer`. | **PASS**: Decrypted plaintext matches original; buffer zeroed. **FAIL**: Ciphertext mismatch or zeroing error. |
+| **2. Configuration & Path Scoping** | `TestLoadConfigAndValidation` | Verifies YAML config unmarshaling, single filename path resolution, `os.OpenRoot` scoping, and driver validation callback execution. | **PASS**: Valid config returned. **FAIL**: Unmarshaling or validation error. |
+| **2. Configuration & Path Scoping** | `TestInvalidConfigValidation` | Verifies rejection of configurations containing unsupported database driver types or invalid TLS mode strings. | **PASS**: Error returned. **FAIL**: Invalid config accepted. |
+| **2. Configuration & Path Scoping** | `TestLoadConfigErrors` | Verifies graceful error handling for missing YAML config files, empty paths, or unreadable directories. | **PASS**: Specific error returned. **FAIL**: Panic or nil error. |
+| **3. Database Registry & Mechanics** | `TestFactorySupportedDrivers` | Tests dynamic instantiation of all 6 supported database drivers (`mysql`, `postgres`, `oracle`, `sqlserver`, `sqlite`, `mongodb`) via driver registry. | **PASS**: Driver instance created. **FAIL**: Driver lookup error. |
+| **3. Database Registry & Mechanics** | `TestFactoryUnsupportedDriver` | Tests error handling when requesting an unregistered database driver type string. | **PASS**: Unsupported driver error. **FAIL**: Non-nil driver returned. |
+| **3. Database Registry & Mechanics** | `TestIsSupportedFunction` | Tests `database.IsSupported` verification callback across supported and unsupported driver strings. | **PASS**: True for supported engines, false otherwise. **FAIL**: Incorrect driver validation. |
+| **3. Database Registry & Mechanics** | `TestNilSafetyOnUninitializedDrivers` | Verifies that calling `Ping()` or `HealthCheck()` on uninitialized driver structs returns an error without panicking. | **PASS**: Error returned without panic. **FAIL**: Runtime panic occurs. |
+| **3. Database Registry & Mechanics** | `TestRegisterDriverNilPanic` | Verifies that attempting to register a `nil` driver factory function triggers a panic during `init()`. | **PASS**: Panic recovered as expected. **FAIL**: Nil factory registered. |
+| **4. SQL Engine & TLS Configuration** | `TestSQLiteDriverLifecycle` | Tests real SQLite database engine lifecycle: `Connect`, `Ping`, `HealthCheck` (`SELECT 1;`), invalid SQL syntax rejection, and `Close`. | **PASS**: Queries succeed; invalid SQL returns error. **FAIL**: Execution error. |
+| **4. SQL Engine & TLS Configuration** | `TestDriverConnectValidDSNs` | Verifies DSN format string construction and connection options across all supported database drivers. | **PASS**: DSN formatted correctly. **FAIL**: DSN syntax error. |
+| **4. SQL Engine & TLS Configuration** | `TestDriverConnectVariousTLSModes` | Verifies TLS configuration generation for `disable`, `require`, `verify-ca`, and `verify-full` modes across drivers. | **PASS**: TLS config created. **FAIL**: Invalid TLS options generated. |
+| **4. SQL Engine & TLS Configuration** | `TestDriverConnectInvalidTLSModes` | Tests rejection of invalid or unknown `tls_mode` strings across all database drivers. | **PASS**: Validation error returned. **FAIL**: Invalid mode accepted. |
+| **4. SQL Engine & TLS Configuration** | `TestOracleDriverWalletValidation` | Verifies that Oracle driver requires a non-empty `WalletPath` when using `verify-ca` or `verify-full` TLS modes. | **PASS**: Error returned when wallet path missing. **FAIL**: Wallet validation skipped. |
+| **4. SQL Engine & TLS Configuration** | `TestBuildTLSConfigModes` | Tests `buildTLSConfig` helper across all TLS modes, server names, and skip-verify flags. | **PASS**: `tls.Config` struct generated correctly. **FAIL**: Option mismatch. |
+| **4. SQL Engine & TLS Configuration** | `TestBuildTLSConfigWithCertificates` | Generates in-memory RSA keypair and x509 cert to test loading custom Root CAs and mTLS client cert/key pairs using `readScopedFile`. | **PASS**: Certs loaded into `tls.Config`. **FAIL**: Certificate parsing error. |
+| **4. SQL Engine & TLS Configuration** | `TestBuildTLSConfigErrors` | Tests error handling when mTLS key/cert pairs are mismatched or missing. | **PASS**: Error returned. **FAIL**: Invalid cert pair accepted. |
+| **4. SQL Engine & TLS Configuration** | `TestScopedFileReadErrors` | Verifies `readScopedFile` error handling when attempting to read non-existent certificate files within valid scoped directories. | **PASS**: Scoped file error returned. **FAIL**: Path escape or unhandled error. |
+| **5. Programmatic Library API** | `TestLibraryCheck` | Tests programmatic `dbchecker.Check` library API across success, decryption fail, driver init fail, connect fail, ping fail, and healthcheck fail steps. | **PASS**: Correct `Result` and `FailedStep` returned. **FAIL**: Step mismatch. |
+| **5. Programmatic Library API** | `TestLibraryCheckAll` | Tests concurrent batch check execution via `dbchecker.CheckAll` using functional options (`WithTimeout`, `WithConcurrency`), nil config, and empty config inputs. | **PASS**: Results array returned matching input DBs. **FAIL**: Concurrency race or missing results. |
+| **5. Programmatic Library API** | `TestRunAppCLIInPkg` | Tests `dbchecker.RunAppCLI` execution, flag parsing, error path exit codes, and `-json` output formatting within library package. | **PASS**: Granular exit codes (0 to 5) match expected errors. **FAIL**: Incorrect exit code. |
+| **6. CLI & Binary Lifecycle** | `TestCheckDatabaseLifecycle` | Tests `main.go` lifecycle execution helper across mock driver instances. | **PASS**: Clean exit code 0 or 1. **FAIL**: Uncaught exception. |
+| **6. CLI & Binary Lifecycle** | `TestRunAppCLIExecution` | Tests root `runApp` CLI execution for `-version`, `-encrypt`, `-config`, `-db`, `-timeout`, `-concurrency`, and exit codes. | **PASS**: Output streams and exit codes match expected flags. **FAIL**: Flag error. |
+| **6. CLI & Binary Lifecycle** | `TestCMDAppCLIExecution` | Tests `cmd/dbchecker/main.go` binary execution wrapper, exit code evaluation, and `-json` output formatting. | **PASS**: Exit codes and JSON output valid. **FAIL**: Binary execution error. |
+| **7. Live E2E CLI Pipeline** | `TestLiveEndToEndCLI` | End-to-end integration test: generates CSPRNG key via secretprotector, encrypts password via `-encrypt`, creates YAML config, and runs live SQLite query execution. | **PASS**: Full E2E check completes with stdout confirmation. **FAIL**: E2E pipeline break. |
+| **8. Ephemeral 5-DB Suite** | `TestLiveDockerContainers` | Starts ephemeral `postgres:18-alpine`, `mysql:8.4`, `mongo:8.0`, `azure-sql-edge` (MSSQL), and `oracle-xe:21-slim` containers concurrently, verifies Connect, Ping, HealthCheck, CLI batch scan, and negative auth rejection, and cleans up containers (`docker rm -f`). | **PASS**: All 5 live container DB engine subtests succeed with 0 residual containers. **SKIP**: Skipped if Docker/WSL engine not active. |
+| **9. Live mTLS Security Suite** | `TestLivePostgresMTLS` | Spins up live PostgreSQL 18 container enforcing SSL (`-c ssl=on`), verifies `verify-full` mode with trusted client cert, rejects rogue CA client certs, and executes CLI scan. | **PASS**: Full mTLS handshake, query execution, and cert rejection succeed. **SKIP**: Skipped if Docker/WSL engine not active. |
+| **9. Live mTLS Security Suite** | `TestLiveMySQLMTLS` | Spins up live MySQL 8.4 container enforcing mTLS (`--require-secure-transport=ON`), verifies `verify-full` mode with trusted client cert, rejects rogue CA client certs, and executes CLI scan. | **PASS**: Full mTLS handshake, query execution, and cert rejection succeed. **SKIP**: Skipped if Docker/WSL engine not active. |
+| **9. Live mTLS Security Suite** | `TestLiveMongoDBMTLS` | Spins up live MongoDB 8.0 container enforcing mTLS (`--tlsMode requireTLS`), verifies `verify-full` mode with trusted client cert, and rejects rogue CA client certs. | **PASS**: Full mTLS handshake, query execution, and cert rejection succeed. **SKIP**: Skipped if Docker/WSL engine not active. |
+| **10. Live mTLS Security Suite** | `TestLiveOracleWalletMTLSValidation` | Verifies Oracle DB connectivity configuration both without mTLS (`disable` mode) and with mTLS (`verify-full` mode with TCPS Oracle Wallets containing `cwallet.sso`). | **PASS**: DSN construction, wallet path validation, and missing wallet rejection succeed. |
+| **11. Opt-in Remote Integration** | `TestLiveExternalDBIntegration` | Opt-in integration test harness that connects, pings, and queries live remote MySQL, Postgres, and MongoDB servers when `LIVE_*` env vars are configured. | **PASS**: Real network connection and query succeed. **SKIP**: Skipped if env vars not set. |
 
 ---
 
@@ -148,7 +200,146 @@ go tool cover -html c.out
 
 ---
 
-## 6. Realistic Data Simulation & Live Integration
+## 6. Live Container & mTLS Database Testing Architecture
+
+To guarantee 100% real-world database engine compatibility, `dbchecker` features a fully automated, ephemeral multi-container test harness ([live_docker_test.go](live_docker_test.go)) and a live mTLS certificate verification suite ([live_mtls_test.go](live_mtls_test.go)).
+
+### 6.1 Multi-Container Test Architecture & Flow
+
+The live container suite tests all 6 supported database engines (**SQLite**, **PostgreSQL 18**, **MySQL 8.4**, **MongoDB 8.0**, **MSSQL / Azure SQL Edge**, and **Oracle 21c Slim**) under realistic environment conditions.
+
+```mermaid
+graph TD
+    A["Start go test -run TestLiveDockerContainers"] --> B["1. Cross-Platform Engine Detection: WSL Docker on Windows / Native Docker on Linux"]
+    B --> C["2. Pre-Test Targeted Cleanup: docker container prune -f --filter name=dbchecker-test"]
+    C --> D["3. Ephemeral Port Allocation & Parallel Container Launch"]
+    
+    subgraph Ephemeral Container Cluster
+        D1["PostgreSQL 18 Container (postgres:18-alpine)"]
+        D2["MySQL 8.4 Container (mysql:8.4)"]
+        D3["MongoDB 8.0 Container (mongo:8.0)"]
+        D4["MSSQL Container (mcr.microsoft.com/azure-sql-edge)"]
+        D5["Oracle 21c Container (gvenzl/oracle-xe:21-slim)"]
+    end
+    
+    D --> D1
+    D --> D2
+    D --> D3
+    D --> D4
+    D --> D5
+    
+    D1 --> E["4. Concurrent Readiness Checks via sync.WaitGroup"]
+    D2 --> E
+    D3 --> E
+    D4 --> E
+    D5 --> E
+    
+    E --> F["5. Execute Low-Level Driver Subtests: Connect, Ping, HealthCheck"]
+    F --> G["6. Full CLI Batch Scan: Master Key Gen, Password Encrypt via secretprotector, Encrypted YAML Batch Scan"]
+    G --> H["7. Negative Auth Rejection: Confirm Failed Auth returns Error Exit Code"]
+    H --> I["8. Post-Test Teardown (t.Cleanup): docker rm -f <container> & docker rmi -f <image>"]
+    I --> J["Zero Residual Containers & Images Guarantee"]
+```
+
+### 6.2 Ephemeral Database Container Specifications
+
+| Database Engine | Docker Image Target | Image Size | Boot Time | Health Query | TLS Configuration |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **SQLite** | Native Cgo / Memory | 0 MB | 0.01s | `SELECT 1;` | N/A (Embedded File/Memory) |
+| **PostgreSQL** | `postgres:18-alpine` | ~50 MB | ~2.0s | `SELECT 1;` | `sslmode=disable` / `verify-full` |
+| **MySQL** | `mysql:8.4` | ~350 MB | ~12.0s | `SELECT 1;` | `tls=disable` / `verify-full` |
+| **MongoDB** | `mongo:8.0` | ~250 MB | ~2.0s | `{"dbStats": 1}` | Native TCP / TLS options |
+| **MSSQL (SQL Server)** | `mcr.microsoft.com/azure-sql-edge` | ~500 MB | ~5.0s | `SELECT 1;` | `TrustServerCertificate=true` |
+| **Oracle** | `gvenzl/oracle-xe:21-slim` | ~1.6 GB | ~15.0s | `SELECT 1 FROM DUAL` | Native TCP / `WalletPath` |
+
+### 6.3 Live mTLS Certificate Verification Architecture
+
+To verify strict zero-trust database security, `live_mtls_test.go` dynamically provisions an in-memory Certificate Authority (CA) and tests mutual TLS (mTLS) client authentication over encrypted tunnels.
+
+```mermaid
+graph TD
+    A["Start TestLivePostgresMTLS / TestLiveMySQLMTLS"] --> B["1. Dynamic Cert Generator: Generate CA, Server Cert with SAN 127.0.0.1, Client Cert, Bad Client Cert"]
+    B --> C["2. Base64 File Writer: Write PEM files directly to WSL /tmp/dbchecker_mtls_* with 0644/0600 permissions"]
+    C --> D["3. Launch Ephemeral Container with Mounted Certs & Enforced SSL"]
+    
+    subgraph Encrypted Container Environment
+        D1["PostgreSQL: -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key"]
+        D2["MySQL: --ssl-ca=/certs/ca.crt --ssl-cert=/certs/server.crt --ssl-key=/certs/server.key --require-secure-transport=ON"]
+    end
+    
+    D --> D1
+    D --> D2
+    
+    D1 & D2 --> E["4. Subtest 1: PostgreSQL/MySQL mTLS Success (verify-full with Trusted Client Cert)"]
+    E --> F["5. Subtest 2: Untrusted Cert Rejection (Reject Rogue CA Client Cert)"]
+    F --> G["6. Subtest 3: Full CLI Scan over mTLS (Verify encrypted YAML batch scan over mTLS)"]
+    G --> H["7. Post-Test Teardown: docker rm -f & rmi -f"]
+```
+
+### 6.4 Ephemeral Teardown & Zero Residual Policy
+
+To guarantee host clean state and eliminate leftover resources across test runs:
+1. **Pre-Test Targeted Pruning**:
+   Before spinning up new database containers, `pruneDbcheckerContainers()` executes:
+   ```bash
+   docker container prune -f --filter name=dbchecker-test
+   ```
+   This immediately removes any stopped "zombie" containers left behind by previously interrupted shell sessions (`Ctrl+C` or `SIGKILL`), while **never touching or modifying non-dbchecker system containers**.
+
+2. **Post-Test Teardown**:
+   Go's `t.Cleanup()` hook automatically executes:
+   ```bash
+   docker rm -f <container_name>
+   docker rmi -f <image_name>
+   ```
+   * **Developer Fast Iteration Mode**: Setting the environment variable `PRESERVE_DOCKER_IMAGES=1` (`$env:PRESERVE_DOCKER_IMAGES="1"` in PowerShell) preserves locally cached docker images while still deleting containers, accelerating repeated local test runs.
+
+### 6.5 Mutual TLS (mTLS) & Security Specifications by Database Engine
+
+Below is the engine-by-engine technical security specification and capability recap table detailing how TLS, mTLS (mutual certificate verification), Custom Root CAs, and Oracle Wallets are handled across `dbchecker`:
+
+#### Engine-by-Engine Security Implementation
+
+1. **PostgreSQL 18**:
+   * **Driver Implementation**: `lib/pq` / `pgx` driver parameters (`sslmode=verify-full`, `sslrootcert`, `sslcert`, `sslkey`).
+   * **Container Configuration**: Server started with `-c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key`.
+   * **mTLS Verification**: Enforces full client certificate validation. Connections with rogue/untrusted client certificates are rejected during TLS handshake.
+
+2. **MySQL 8.4**:
+   * **Driver Implementation**: Standard `go-sql-driver/mysql` via `mysql.RegisterTLSConfig` with custom `tls.Config`, `RootCAs` pool, and client `Certificates` (`tls.LoadX509KeyPair`).
+   * **Container Configuration**: Server started with `--ssl-ca=/certs/ca.crt --ssl-cert=/certs/server.crt --ssl-key=/certs/server.key --require-secure-transport=ON`.
+   * **mTLS Verification**: Rejects untrusted client certs with `remote error: tls: unknown certificate authority`.
+
+3. **MongoDB 8.0**:
+   * **Driver Implementation**: Official `go.mongodb.org/mongo-driver/v2` via `options.Client().SetTLSConfig(tlsConfig)` with custom `tls.Config`, `RootCAs`, and client `Certificates`.
+   * **Container Configuration**: Server started with `--tlsMode requireTLS --tlsCAFile /certs/ca.crt --tlsCertificateKeyFile /certs/server.pem`.
+   * **mTLS Verification**: Enforces strict mutual TLS authentication.
+
+4. **MSSQL (SQL Server / Azure SQL Edge)**:
+   * **Driver Implementation**: `github.com/microsoft/go-mssqldb` using `encrypt=true`, `TrustServerCertificate=true` (or `false`), and `certificate=<path>`.
+   * **Security Specification**: TDS wire protocol uses TLS for transport encryption and server verification. Client authentication is handled via SQL password / AD credentials.
+
+5. **Oracle DB (`oracle-xe:21-slim`)**:
+   * **Driver Implementation**: Pure Go `github.com/sijms/go-ora/v2` driver using `ssl=true` and `wallet=<wallet_path>`.
+   * **Security Specification**: Consumes Oracle Wallets (`cwallet.sso` / PKCS12) for TCPS transport encryption and server verification.
+
+6. **SQLite**:
+   * Embedded file/in-memory database engine. No network transport layer or TLS protocol.
+
+#### Database Security & mTLS Capability Recap Table
+
+| Database Engine | Supported TLS Modes | Key Driver Parameters | Client Cert (mTLS) | Root CA Support | Oracle Wallet | Automated Live Test Suite |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| **PostgreSQL 18** | `disable`, `require`, `verify-ca`, `verify-full` | `sslmode`, `sslrootcert`, `sslcert`, `sslkey` | **YES** | **YES** | N/A | `TestLivePostgresMTLS` |
+| **MySQL 8.4** | `disable`, `require`, `verify-ca`, `verify-full` | `mysql.RegisterTLSConfig`, `ServerName` | **YES** | **YES** | N/A | `TestLiveMySQLMTLS` |
+| **MongoDB 8.0** | `disable`, `require`, `verify-ca`, `verify-full` | `SetTLSConfig`, `tlsCAFile` | **YES** | **YES** | N/A | `TestLiveMongoDBMTLS` |
+| **MSSQL (SQL Server)** | `disable`, `require`, `verify-ca`, `verify-full` | `encrypt`, `TrustServerCertificate`, `certificate` | N/A (TDS Spec) | **YES** | N/A | `TestLiveDockerContainers` |
+| **Oracle 21c Slim** | `disable`, `require`, `verify-ca`, `verify-full` | `ssl`, `ssl verify`, `wallet` | N/A (TCPS Wallet) | **YES** | **YES** | `TestLiveDockerContainers` & `TestLiveOracleWalletMTLSValidation` |
+| **SQLite** | N/A (Embedded) | DSN `:memory:` or file path | N/A | N/A | N/A | `TestSQLiteDriverLifecycle` |
+
+---
+
+## 7. Realistic Data Simulation & Live Integration
 
 To guarantee real-world database engine compatibility, the test suite integrates multiple realistic simulation mechanisms:
 
@@ -172,44 +363,46 @@ To guarantee real-world database engine compatibility, the test suite integrates
 
 ---
 
-## 7. How to Run the Tests
+### 8. How to Run the Tests
 
-### Running Tests in PowerShell (Windows)
-
-```powershell
-# Run all unit and integration tests across all packages
-go test -v ./...
-
-# Run tests with statement coverage summary
-go test -cover ./...
-
-# Run a specific test by name (e.g. TestLiveEndToEndCLI)
-go test -v -run TestLiveEndToEndCLI ./...
-
-# Run live remote database integration tests (when live servers are available)
-$env:LIVE_MYSQL_HOST="127.0.0.1"; $env:LIVE_MYSQL_USER="root"; $env:LIVE_MYSQL_PASS="secret"; $env:LIVE_MYSQL_DB="testdb"
-go test -v -run TestLiveExternalDBIntegration ./...
-```
-
-### Running Tests in Bash (Linux / macOS)
+Standard `go test` commands execute identically across Windows (PowerShell/CMD), Linux, and macOS.
 
 ```bash
-# Run all unit and integration tests across all packages
+# 1. Run all unit and mock integration tests across all packages
 go test -v ./...
 
-# Run tests with statement coverage summary
-go test -cover ./...
+# 2. Run unit tests only (skipping live container infrastructure)
+go test -v -short ./...
 
-# Run a specific test by name
-go test -v -run TestLiveEndToEndCLI ./...
+# 3. Generate statement coverage profile and interactive HTML report
+go test -coverprofile c.out ./...
+go tool cover -html c.out
 
-# Run live remote database integration tests
+# 4. Run Live 5-Database Ephemeral Container Test Suite (Default: Teardown containers AND delete images after test)
+go test -v -count=1 -run TestLiveDockerContainers .
+
+# 5. Run Live 5-Database Container Suite (Developer Iteration Mode: Keep/Cache images locally)
+PRESERVE_DOCKER_IMAGES=1 go test -v -count=1 -run TestLiveDockerContainers .
+
+# 6. Run Live mTLS Security Test Suite (PostgreSQL 18, MySQL 8.4, and MongoDB 8.0 verify-full mTLS)
+PRESERVE_DOCKER_IMAGES=1 go test -v -count=1 -run "TestLive(Postgres|MySQL|MongoDB)MTLS" .
+
+# 7. Run live remote database integration tests (when external servers are available)
 LIVE_MYSQL_HOST="127.0.0.1" LIVE_MYSQL_USER="root" LIVE_MYSQL_PASS="secret" LIVE_MYSQL_DB="testdb" go test -v -run TestLiveExternalDBIntegration ./...
 ```
 
+### OS Shell Syntax Differences
+
+The only difference between Bash and PowerShell is the syntax for passing inline environment variables:
+
+| Environment Variable Task | Bash (Linux / macOS / WSL) | PowerShell (Windows) |
+| :--- | :--- | :--- |
+| **Developer Image Cache Mode** | `PRESERVE_DOCKER_IMAGES=1 go test ...` | `$env:PRESERVE_DOCKER_IMAGES="1"; go test ...` |
+| **Live Remote Server Variables** | `LIVE_MYSQL_HOST="127.0.0.1" go test ...` | `$env:LIVE_MYSQL_HOST="127.0.0.1"; go test ...` |
+
 ---
 
-## 8. Maintenance and Troubleshooting
+## 9. Maintenance and Troubleshooting
 
 ### Common Testing Issues & Solutions
 

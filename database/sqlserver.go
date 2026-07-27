@@ -24,15 +24,14 @@ func (s *SQLServer) Connect(ctx context.Context, cfg config.DatabaseConfig, decr
 
 	switch cfg.TLSMode {
 	case "disable", "":
-		query.Add("encrypt", "false")
+		query.Add("encrypt", "disable")
+		query.Add("TrustServerCertificate", "true")
 	case "require":
 		query.Add("encrypt", "true")
-		query.Add("trust server certificate", "true")
+		query.Add("TrustServerCertificate", "true")
 	case "verify-ca", "verify-full":
-		// For both verify-ca and verify-full, we want the driver to validate the cert.
-		// The driver uses hostname verification by default when trust server certificate is false.
 		query.Add("encrypt", "true")
-		query.Add("trust server certificate", "false")
+		query.Add("TrustServerCertificate", "false")
 	default:
 		return fmt.Errorf("invalid tls_mode for sqlserver: %s", cfg.TLSMode)
 	}
