@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"criticalsys.net/dbchecker/crypto"
-	"criticalsys.net/dbchecker/pkg/dbchecker"
+	"github.com/edsilegxrepo/dbchecker/crypto"
+	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
 func TestCMDAppCLIExecution(t *testing.T) {

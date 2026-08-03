@@ -6,7 +6,8 @@ package crypto
 
 import (
 	"context"
-	"criticalsys/secretprotector/pkg/libsecsecrets"
+
+	"github.com/edsilegxrepo/secretprotector/pkg/libsecsecrets"
 )
 
 // DefaultKeyEnv is the default environment variable name used for secret key resolution.

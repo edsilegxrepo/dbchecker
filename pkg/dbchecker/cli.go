@@ -8,9 +8,9 @@ import (
 	"io"
 	"time"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/crypto"
-	"criticalsys.net/dbchecker/database"
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/crypto"
+	"github.com/edsilegxrepo/dbchecker/database"
 )
 
 var Version string

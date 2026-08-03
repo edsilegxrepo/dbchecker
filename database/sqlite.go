@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"criticalsys.net/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/config"
 	_ "github.com/mattn/go-sqlite3"
 )
 

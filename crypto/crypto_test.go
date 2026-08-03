@@ -2,10 +2,11 @@ package crypto_test
 
 import (
 	"context"
-	"criticalsys/secretprotector/pkg/libsecsecrets"
 	"testing"
 
-	"criticalsys.net/dbchecker/crypto"
+	"github.com/edsilegxrepo/secretprotector/pkg/libsecsecrets"
+
+	"github.com/edsilegxrepo/dbchecker/crypto"
 )
 
 func TestCryptoIntegration(t *testing.T) {

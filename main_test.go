@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/crypto"
-	"criticalsys.net/dbchecker/database"
-	pkgdb "criticalsys.net/dbchecker/pkg/dbchecker"
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/crypto"
+	"github.com/edsilegxrepo/dbchecker/database"
+	pkgdb "github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
 type MockTestDB struct {

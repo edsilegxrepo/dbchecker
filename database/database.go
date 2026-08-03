@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"criticalsys.net/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/config"
 )
 
 // DB defines the standard operations required for any supported database type.

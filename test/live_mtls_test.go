@@ -1,9 +1,11 @@
-package main
+//go:build integration
+// +build integration
+
+package test
 
 import (
 	"bytes"
 	"context"
-	"criticalsys/secretprotector/pkg/libsecsecrets"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -22,8 +24,12 @@ import (
 	"testing"
 	"time"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/database"
+	"github.com/edsilegxrepo/secretprotector/pkg/libsecsecrets"
+
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/database"
+	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
+	"github.com/edsilegxrepo/dbchecker/testutil"
 )
 
 const (
@@ -260,15 +266,15 @@ func TestLivePostgresMTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping live mTLS tests in -short mode.")
 	}
-	if !isDockerAvailable() {
+	if !testutil.IsDockerAvailable() {
 		t.Skip("Skipping live mTLS tests: Docker daemon not available.")
 	}
 
-	pruneDbcheckerContainers()
+	testutil.PruneContainers("dbchecker")
 	cs := generateLiveMTLSCerts(t)
 	localCertDir, mountCertDir := setupLiveMTLSCertDir(t, cs, postgresContainerUIDGID)
 
-	prefix := getDockerPrefix()
+	prefix := testutil.GetDockerPrefix()
 	containerName := fmt.Sprintf("dbchecker-pg-mtls-%d", time.Now().UnixNano())
 	_ = exec.Command(prefix[0], append(prefix[1:], "rm", "-f", containerName)...).Run()
 
@@ -338,7 +344,7 @@ func TestLivePostgresMTLS(t *testing.T) {
 	}
 
 	// Wait for Postgres boot
-	if err := waitForDatabase(ctx, "postgres", validCfg, "secretpass", 30*time.Second); err != nil {
+	if err := testutil.WaitForDatabase(ctx, "postgres", validCfg, "secretpass", 30*time.Second); err != nil {
 		t.Fatalf("PostgreSQL mTLS container boot timeout: %v", err)
 	}
 
@@ -392,7 +398,7 @@ func TestLivePostgresMTLS(t *testing.T) {
 		t.Setenv("DB_SECRET_KEY", masterKey)
 
 		var encOut, encErr bytes.Buffer
-		exitCode := runApp([]string{"-encrypt", "secretpass"}, &encOut, &encErr)
+		exitCode := dbchecker.RunAppCLI([]string{"-encrypt", "secretpass"}, &encOut, &encErr)
 		if exitCode != 0 {
 			t.Fatalf("CLI encryption failed: %s", encErr.String())
 		}
@@ -419,7 +425,7 @@ databases:
 		}
 
 		var scanOut, scanErr bytes.Buffer
-		exitCode = runApp([]string{"-config", configPath, "-json"}, &scanOut, &scanErr)
+		exitCode = dbchecker.RunAppCLI([]string{"-config", configPath, "-json"}, &scanOut, &scanErr)
 		if exitCode != 0 {
 			t.Fatalf("CLI mTLS scan failed with exit code %d. Stderr: %s", exitCode, scanErr.String())
 		}
@@ -435,15 +441,15 @@ func TestLiveMySQLMTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping live mTLS tests in -short mode.")
 	}
-	if !isDockerAvailable() {
+	if !testutil.IsDockerAvailable() {
 		t.Skip("Skipping live mTLS tests: Docker daemon not available.")
 	}
 
-	pruneDbcheckerContainers()
+	testutil.PruneContainers("dbchecker")
 	cs := generateLiveMTLSCerts(t)
 	localCertDir, mountCertDir := setupLiveMTLSCertDir(t, cs, mysqlContainerUIDGID)
 
-	prefix := getDockerPrefix()
+	prefix := testutil.GetDockerPrefix()
 	containerName := fmt.Sprintf("dbchecker-mysql-mtls-%d", time.Now().UnixNano())
 	_ = exec.Command(prefix[0], append(prefix[1:], "rm", "-f", containerName)...).Run()
 
@@ -510,7 +516,7 @@ func TestLiveMySQLMTLS(t *testing.T) {
 	}
 
 	// Wait for MySQL boot
-	if err := waitForDatabase(ctx, "mysql", validCfg, "secretpass", 95*time.Second); err != nil {
+	if err := testutil.WaitForDatabase(ctx, "mysql", validCfg, "secretpass", 95*time.Second); err != nil {
 		t.Fatalf("MySQL mTLS container boot timeout: %v", err)
 	}
 
@@ -564,7 +570,7 @@ func TestLiveMySQLMTLS(t *testing.T) {
 		t.Setenv("DB_SECRET_KEY", masterKey)
 
 		var encOut, encErr bytes.Buffer
-		exitCode := runApp([]string{"-encrypt", "secretpass"}, &encOut, &encErr)
+		exitCode := dbchecker.RunAppCLI([]string{"-encrypt", "secretpass"}, &encOut, &encErr)
 		if exitCode != 0 {
 			t.Fatalf("CLI encryption failed: %s", encErr.String())
 		}
@@ -591,7 +597,7 @@ databases:
 		}
 
 		var scanOut, scanErr bytes.Buffer
-		exitCode = runApp([]string{"-config", configPath, "-json"}, &scanOut, &scanErr)
+		exitCode = dbchecker.RunAppCLI([]string{"-config", configPath, "-json"}, &scanOut, &scanErr)
 		if exitCode != 0 {
 			t.Fatalf("CLI mTLS scan failed with exit code %d. Stderr: %s", exitCode, scanErr.String())
 		}
@@ -607,11 +613,11 @@ func TestLiveMongoDBMTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping live mTLS tests in -short mode.")
 	}
-	if !isDockerAvailable() {
+	if !testutil.IsDockerAvailable() {
 		t.Skip("Skipping live mTLS tests: Docker daemon not available.")
 	}
 
-	pruneDbcheckerContainers()
+	testutil.PruneContainers("dbchecker")
 	cs := generateLiveMTLSCerts(t)
 	localCertDir, mountCertDir := setupLiveMTLSCertDir(t, cs, mongoContainerUIDGID)
 
@@ -622,7 +628,7 @@ func TestLiveMongoDBMTLS(t *testing.T) {
 	badKeyPath := filepath.Join(localCertDir, "bad_client.key")
 
 	containerName := fmt.Sprintf("dbchecker-mtls-mongo-%d", time.Now().UnixNano())
-	prefix := getDockerPrefix()
+	prefix := testutil.GetDockerPrefix()
 	_ = exec.Command(prefix[0], append(prefix[1:], "rm", "-f", containerName)...).Run()
 
 	args := append(prefix[1:], "run", "-d", "--name", containerName,
@@ -685,7 +691,7 @@ func TestLiveMongoDBMTLS(t *testing.T) {
 		HealthQuery:    `{"dbStats": 1}`,
 	}
 
-	if err := waitForDatabase(ctx, "mongodb", validCfg, "", 30*time.Second); err != nil {
+	if err := testutil.WaitForDatabase(ctx, "mongodb", validCfg, "", 30*time.Second); err != nil {
 		t.Fatalf("MongoDB mTLS container boot timeout: %v", err)
 	}
 

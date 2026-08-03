@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/database"
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/database"
 )
 
 func TestFactorySupportedDrivers(t *testing.T) {

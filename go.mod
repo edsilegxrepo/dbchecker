@@ -1,9 +1,9 @@
-module criticalsys.net/dbchecker
+module github.com/edsilegxrepo/dbchecker
 
 go 1.25.7
 
 require (
-	criticalsys/secretprotector v0.0.0
+	github.com/edsilegxrepo/secretprotector v0.0.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.48
@@ -12,8 +12,6 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace criticalsys/secretprotector => ../secretprotector
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

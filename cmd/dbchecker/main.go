@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"criticalsys.net/dbchecker/pkg/dbchecker"
+	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
 func main() {

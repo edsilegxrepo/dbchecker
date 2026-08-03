@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"criticalsys.net/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/config"
 	_ "github.com/lib/pq"
 )
 

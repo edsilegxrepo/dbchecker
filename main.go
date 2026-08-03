@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/pkg/dbchecker"
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
 func main() {

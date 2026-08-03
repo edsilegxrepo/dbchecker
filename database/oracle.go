@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"criticalsys.net/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/config"
 	go_ora "github.com/sijms/go-ora/v2"
 )
 

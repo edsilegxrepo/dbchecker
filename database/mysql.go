@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"criticalsys.net/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/config"
 	"github.com/go-sql-driver/mysql"
 )
 

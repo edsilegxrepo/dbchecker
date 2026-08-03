@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.2] - 2026-07-29
+
+### Added
+* **Modular Integration Test Package (`test/`)**: Reorganized test infrastructure by moving long-running live container integration test suites (`live_docker_test.go`, `live_e2e_test.go`, `live_mtls_test.go`) into dedicated `test/` package with `//go:build integration` build tags, enabling instant (<1s) unit test execution (`go test ./...`).
+* **Reusable Test Utility Module (`testutil`)**: Extracted shared container orchestration routines (`StartLiveDatabaseCluster`, `WaitForDatabase`, `PruneContainers`, `GetDockerPrefix`, `IsDockerAvailable`, `RunEphemeralContainer`) into decoupled helper module `criticalsys.net/dbchecker/testutil`.
+* **Universal DSN Parser & Test Suite (`config/dsn.go`)**: Implemented robust `ParseDSN` helper functions with complete support for special characters (`@`, `:`, `/`, `%`, `?`, `#`) in passwords and query parameter extraction across PostgreSQL, MySQL, SQLite, MongoDB, MSSQL, and Oracle drivers.
+
+---
+
 ## [v1.0.1] - 2026-07-27
 
 ### Added

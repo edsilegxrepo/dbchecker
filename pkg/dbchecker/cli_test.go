@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"criticalsys.net/dbchecker/crypto"
+	"github.com/edsilegxrepo/dbchecker/crypto"
 )
 
 func TestRunAppCLIInPkg(t *testing.T) {

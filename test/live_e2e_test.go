@@ -1,16 +1,21 @@
-package main
+//go:build integration
+// +build integration
+
+package test
 
 import (
 	"bytes"
 	"context"
-	"criticalsys/secretprotector/pkg/libsecsecrets"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/database"
+	"github.com/edsilegxrepo/secretprotector/pkg/libsecsecrets"
+
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/database"
+	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
 // TestLiveEndToEndCLI verifies the entire live application stack end-to-end:
@@ -33,7 +38,7 @@ func TestLiveEndToEndCLI(t *testing.T) {
 	// 2. Run live encryption via CLI flag (-encrypt)
 	var encryptStdout, encryptStderr bytes.Buffer
 	plainPassword := "MyLiveSecureDBPassword2026!"
-	exitCode := runApp([]string{"-encrypt", plainPassword}, &encryptStdout, &encryptStderr)
+	exitCode := dbchecker.RunAppCLI([]string{"-encrypt", plainPassword}, &encryptStdout, &encryptStderr)
 	if exitCode != 0 {
 		t.Fatalf("Live encryption CLI failed with exit code %d. Stderr: %s", exitCode, encryptStderr.String())
 	}
@@ -58,7 +63,7 @@ databases:
 
 	// 4. Execute live dbchecker scan using -config and -db
 	var scanStdout, scanStderr bytes.Buffer
-	exitCode = runApp([]string{"-config", configPath, "-db", "live_sqlite_check"}, &scanStdout, &scanStderr)
+	exitCode = dbchecker.RunAppCLI([]string{"-config", configPath, "-db", "live_sqlite_check"}, &scanStdout, &scanStderr)
 	if exitCode != 0 {
 		t.Fatalf("Live scan CLI failed with exit code %d. Stderr: %s", exitCode, scanStderr.String())
 	}

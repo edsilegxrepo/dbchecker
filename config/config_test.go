@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"criticalsys.net/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/config"
 )
 
 func TestLoadConfigAndValidation(t *testing.T) {

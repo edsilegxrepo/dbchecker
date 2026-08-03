@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"criticalsys.net/dbchecker/config"
-	"criticalsys.net/dbchecker/crypto"
-	"criticalsys.net/dbchecker/database"
-	"criticalsys.net/dbchecker/pkg/dbchecker"
+	"github.com/edsilegxrepo/dbchecker/config"
+	"github.com/edsilegxrepo/dbchecker/crypto"
+	"github.com/edsilegxrepo/dbchecker/database"
+	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
 type MockLibDB struct {
