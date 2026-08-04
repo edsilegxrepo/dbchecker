@@ -1,6 +1,34 @@
 //go:build integration
 // +build integration
 
+/*
+Mutual TLS (mTLS) integration tests for database connections.
+
+Test Strategy:
+  - Generate ephemeral x509 CA, server, client, and "bad client" certificates
+  - Spin up database containers configured to require TLS (verify-full)
+  - Test happy path: valid client cert connects successfully
+  - Test negative path: untrusted client cert rejected
+  - Test CLI scan: full end-to-end with encrypted credentials over mTLS
+
+Certificate Hierarchy:
+
+	Root CA (self-signed)
+	├── Server cert (127.0.0.1 + localhost SANs)
+	└── Client cert (for mTLS client auth)
+	Rogue CA (separate chain)
+	└── Bad client cert (should be rejected)
+
+WSL2 Considerations:
+  - Certs written to WSL filesystem (/tmp/...) for container access
+  - Local copies kept for dbchecker client on Windows
+  - UID:GID ownership set per-container (postgres=70:70, mysql=999:999, etc.)
+
+Requirements:
+  - Build tag "integration": go test -tags integration ./test/...
+  - Docker daemon available (tests skipped otherwise)
+  - Skip with -short flag for faster CI runs
+*/
 package test
 
 import (
@@ -33,12 +61,12 @@ import (
 )
 
 const (
-	// Container process Linux UIDs/GIDs for cert directory ownership
-	postgresContainerUIDGID = "70:70"       // postgres:18-alpine daemon user
-	mysqlContainerUIDGID    = "999:999"     // mysql:8.4 daemon user
-	mongoContainerUIDGID    = "999:999"     // mongo:8.0 daemon user
-	mssqlContainerUIDGID    = "10001:0"     // azure-sql-edge daemon user
-	oracleContainerUIDGID   = "54321:54321" // oracle-xe:21-slim daemon user
+	// Container daemon UIDs for cert file ownership (required for TLS key access)
+	postgresContainerUIDGID = "70:70"       // postgres:18-alpine
+	mysqlContainerUIDGID    = "999:999"     // mysql:8.4
+	mongoContainerUIDGID    = "999:999"     // mongo:8.0
+	mssqlContainerUIDGID    = "10001:0"     // azure-sql-edge
+	oracleContainerUIDGID   = "54321:54321" // oracle-xe:21-slim
 )
 
 // certSet holds PEM-encoded certificate authority, server, client, and untrusted client certs.

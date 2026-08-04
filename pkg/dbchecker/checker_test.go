@@ -1,8 +1,25 @@
+/*
+Unit tests for the dbchecker library API (Check, CheckAll, Result).
+
+Test Strategy:
+  - Uses mock database drivers to test each failure mode in isolation
+  - Verifies correct exit codes and FailedStep values for each stage
+  - Tests CheckAll with concurrency options and deterministic ordering
+  - Tests JSON serialization (DurationMs, ErrorMsg fields)
+
+Mock Driver Registry:
+  - mock_lib_ok: All operations succeed
+  - mock_lib_fail_conn: Connect() returns error
+  - mock_lib_fail_ping: Ping() returns error
+  - mock_lib_fail_health: HealthCheck() returns error
+*/
 package dbchecker_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +29,7 @@ import (
 	"github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
+// MockLibDB is a configurable mock for testing lifecycle stage failures.
 type MockLibDB struct {
 	connectErr     error
 	pingErr        error
@@ -133,5 +151,72 @@ func TestLibraryCheckAll(t *testing.T) {
 	}
 	if successCount != 2 {
 		t.Errorf("Expected 2 successful checks, got %d", successCount)
+	}
+}
+
+func TestCheckAllDeterministicOrdering(t *testing.T) {
+	ctx := context.Background()
+	secretKey := []byte("12345678901234567890123456789012")
+	encryptedPass, _ := crypto.Encrypt(ctx, "secret", secretKey)
+
+	cfg := &config.Config{
+		Databases: map[string]config.DatabaseConfig{
+			"zulu":  {Type: "mock_lib_ok", Password: encryptedPass},
+			"alpha": {Type: "mock_lib_ok", Password: encryptedPass},
+			"mike":  {Type: "mock_lib_ok", Password: encryptedPass},
+			"bravo": {Type: "mock_lib_ok", Password: encryptedPass},
+		},
+	}
+
+	// Run multiple times to verify consistent ordering
+	for i := 0; i < 5; i++ {
+		results := dbchecker.CheckAll(ctx, cfg, secretKey)
+		if len(results) != 4 {
+			t.Fatalf("Expected 4 results, got %d", len(results))
+		}
+
+		// Results should be sorted alphabetically by ID
+		expectedOrder := []string{"alpha", "bravo", "mike", "zulu"}
+		for j, expected := range expectedOrder {
+			if results[j].ID != expected {
+				t.Errorf("Run %d: Expected result[%d].ID=%q, got %q", i, j, expected, results[j].ID)
+			}
+		}
+	}
+}
+
+func TestResultJSONSerialization(t *testing.T) {
+	res := dbchecker.Result{
+		ID:         "test_db",
+		Type:       "postgres",
+		Success:    false,
+		ExitCode:   dbchecker.ExitHealthError,
+		Duration:   150 * time.Millisecond,
+		DurationMs: 150,
+		FailedStep: dbchecker.StepPing,
+		Err:        errors.New("connection refused"),
+		ErrorMsg:   "connection refused",
+	}
+
+	data, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("JSON marshal failed: %v", err)
+	}
+
+	jsonStr := string(data)
+
+	// Verify DurationMs is serialized (not Duration in nanoseconds)
+	if !strings.Contains(jsonStr, `"duration_ms":150`) {
+		t.Errorf("Expected duration_ms:150 in JSON, got: %s", jsonStr)
+	}
+
+	// Verify ErrorMsg is serialized (not empty object)
+	if !strings.Contains(jsonStr, `"error":"connection refused"`) {
+		t.Errorf("Expected error message in JSON, got: %s", jsonStr)
+	}
+
+	// Verify Duration and Err are NOT serialized (json:"-")
+	if strings.Contains(jsonStr, "nanoseconds") || strings.Contains(jsonStr, "150000000") {
+		t.Errorf("Duration should not be serialized as nanoseconds, got: %s", jsonStr)
 	}
 }

@@ -1,7 +1,7 @@
 # DB Connection Diags (`dbchecker`)
 
 [![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?style=flat&logo=go)](https://golang.org)
-[![Coverage](https://img.shields.io/badge/Coverage-88.1%25-brightgreen?style=flat)](./TESTING.md)
+[![Coverage](https://img.shields.io/badge/Coverage-91.6%25-brightgreen?style=flat)](./TESTING.md)
 [![Architecture](https://img.shields.io/badge/Architecture-Modular%20Library%20%2B%20CLI-blue?style=flat)](./ARCHITECTURE.md)
 
 `dbchecker` is an enterprise-grade Go library and CLI utility designed to diagnose, profile, and verify multi-database connectivity across heterogeneous SQL and NoSQL database engines (**MySQL**, **PostgreSQL**, **MongoDB v2**, **Oracle**, **SQL Server**, and **SQLite**).
@@ -42,9 +42,9 @@ It features **AES-256-GCM envelope encryption** via `secretprotector`, **Go 1.24
 - **Oracle Wallets**: Native support for encrypted Oracle Wallet directories (`wallet_path`).
 
 ### B. Secret Management & Memory Hygiene
-- **Cryptographic Subsystem**: Integrates with `criticalsys/secretprotector/pkg/libsecsecrets` for AES-256-GCM authenticated encryption (`nonce + ciphertext + tag`).
+- **Cryptographic Subsystem**: Integrates with `secretprotector/pkg/libsecsecrets` for AES-256-GCM authenticated encryption (`nonce + ciphertext + tag`).
 - **Key Resolution Hierarchy**: Resolves 32-byte master keys with strict precedence (`raw` flag > `DB_SECRET_KEY` env var > `-key-file` path).
-- **RAM Hygiene**: Master secret key byte buffers are zeroed out in memory immediately after resolution using `crypto.ZeroBuffer`.
+- **RAM Hygiene**: Master secret key and decrypted password byte buffers are zeroed out in memory immediately after use via `crypto.ZeroBuffer`. Passwords are decrypted using `DecryptBytes` (returns `[]byte`) rather than `Decrypt` (returns `string`) to enable zeroing.
 - **Key File Permissions**: Validates strict OS file permissions (`0400`/`0600` on Linux/macOS; restricted ACLs on Windows) and rejects insecure `/temp/` directory locations.
 
 ### C. Authentication Configuration & RBAC (Least-Privilege Model)
@@ -75,7 +75,7 @@ It features **AES-256-GCM envelope encryption** via `secretprotector`, **Go 1.24
 
 ## 3. Code Quality Assessment and Best Practices
 
-- **Test Coverage**: Maintains **88.1% total repository statement coverage** (**100.0%** in `crypto`, **93.1%** in `pkg/dbchecker`, **92.6%** in `config`). Every package exceeds the required 80.0% quality gate.
+- **Test Coverage**: Maintains **91.6% core package statement coverage** (**100.0%** in `crypto`, **95.8%** in `config`, **93.1%** in `pkg/dbchecker`, **89.6%** in `database`). All core packages exceed the 80.0% quality gate.
 - **Modular Plugin Architecture**: Self-registering thread-safe driver registry (`sync.RWMutex`) decouples database engines from core application logic.
 - **Structured Error Handling**: Returns typed error step constants (`StepDecryption`, `StepDriverInit`, `StepConnect`, `StepPing`, `StepHealthCheck`) and granular exit codes (0 to 5).
 - **Context Awareness**: Propagates `context.Context` deadlines through all network handshakes, query executions, and driver calls.
@@ -273,49 +273,51 @@ Successfully connected and checked sqlite_local (sqlite) [0.4ms]
 ```json
 [
   {
-    "id": "mysql_orders",
-    "type": "mysql",
-    "success": true,
-    "exit_code": 0,
-    "duration_ms": 12400000
-  },
-  {
-    "id": "pg_production",
-    "type": "postgres",
-    "success": true,
-    "exit_code": 0,
-    "duration_ms": 14200000
-  },
-  {
     "id": "mongo_cluster",
     "type": "mongodb",
     "success": true,
     "exit_code": 0,
-    "duration_ms": 22800000
+    "duration_ms": 22
+  },
+  {
+    "id": "mysql_orders",
+    "type": "mysql",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 12
   },
   {
     "id": "oracle_finance",
     "type": "oracle",
     "success": true,
     "exit_code": 0,
-    "duration_ms": 35100000
+    "duration_ms": 35
   },
   {
-    "id": "sqlserver_erp",
-    "type": "sqlserver",
+    "id": "pg_production",
+    "type": "postgres",
     "success": true,
     "exit_code": 0,
-    "duration_ms": 18600000
+    "duration_ms": 14
   },
   {
     "id": "sqlite_local",
     "type": "sqlite",
     "success": true,
     "exit_code": 0,
-    "duration_ms": 400000
+    "duration_ms": 0
+  },
+  {
+    "id": "sqlserver_erp",
+    "type": "sqlserver",
+    "success": true,
+    "exit_code": 0,
+    "duration_ms": 18
   }
 ]
 ```
+
+> **Note:** Results are returned in deterministic alphabetical order by database ID for reproducible output.
 
 #### Executing Single Database Check
 ```bash

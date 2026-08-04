@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -87,9 +88,13 @@ func (m *MongoDB) HealthCheck(ctx context.Context, query string) error {
 	return nil
 }
 
+// Close disconnects from MongoDB with a 5-second timeout.
+// Uses bounded timeout instead of context.Background() to prevent indefinite blocking.
 func (m *MongoDB) Close() error {
 	if m.client == nil {
 		return nil
 	}
-	return m.client.Disconnect(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return m.client.Disconnect(ctx)
 }

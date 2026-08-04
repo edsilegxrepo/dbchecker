@@ -1,3 +1,21 @@
+/*
+CLI implementation for dbchecker database connectivity diagnostics.
+
+Usage Modes:
+  - Version: dbchecker -version
+  - Encrypt: dbchecker -encrypt "password" (outputs Base64 ciphertext)
+  - Single:  dbchecker -config config.yaml -db mydb
+  - Batch:   dbchecker -config config.yaml [-concurrency 10] [-json]
+
+Error Message Format: "[component] action failed: error"
+
+	Components: key, encrypt, config, output
+
+Exit Code Strategy:
+
+	Returns the highest exit code among all checked databases.
+	This enables shell scripts to detect the most severe failure type.
+*/
 package dbchecker
 
 import (
@@ -13,7 +31,9 @@ import (
 	"github.com/edsilegxrepo/dbchecker/database"
 )
 
-var Version string
+// Version is set at build time via -ldflags "-X ...Version=v1.0.0".
+// Defaults to "dev" for local builds without ldflags.
+var Version = "dev"
 
 // RunAppCLI executes CLI lifecycle logic and returns integer exit code.
 // Exit codes:
@@ -58,7 +78,7 @@ func RunAppCLI(args []string, stdout, stderr io.Writer) int {
 
 	secretKeyBytes, err := crypto.ResolveKey(ctx, "", envVar, keyFile)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "Error resolving secret key: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "[key] resolution failed: %v\n", err)
 		return ExitKeyError
 	}
 	defer crypto.ZeroBuffer(secretKeyBytes)
@@ -66,7 +86,7 @@ func RunAppCLI(args []string, stdout, stderr io.Writer) int {
 	if *encryptFlag != "" {
 		encryptedPassword, err := crypto.Encrypt(ctx, *encryptFlag, secretKeyBytes)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "Error encrypting password: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "[encrypt] encryption failed: %v\n", err)
 			return ExitDecryptionError
 		}
 		_, _ = fmt.Fprintln(stdout, encryptedPassword)
@@ -75,7 +95,7 @@ func RunAppCLI(args []string, stdout, stderr io.Writer) int {
 
 	cfg, err := config.LoadConfig(*configFile, database.IsSupported)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "Error loading config file: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "[config] load failed: %v\n", err)
 		return ExitConfigError
 	}
 
@@ -84,7 +104,7 @@ func RunAppCLI(args []string, stdout, stderr io.Writer) int {
 	if *dbID != "" {
 		dbConfig, ok := cfg.Databases[*dbID]
 		if !ok {
-			_, _ = fmt.Fprintf(stderr, "Database with ID '%s' not found in config\n", *dbID)
+			_, _ = fmt.Fprintf(stderr, "[config] database ID '%s' not found\n", *dbID)
 			return ExitConfigError
 		}
 		res := Check(ctx, *dbID, dbConfig, secretKeyBytes, *timeoutFlag)
@@ -100,7 +120,7 @@ func RunAppCLI(args []string, stdout, stderr io.Writer) int {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(results); err != nil {
-			_, _ = fmt.Fprintf(stderr, "Error encoding JSON results: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "[output] JSON encoding failed: %v\n", err)
 			return ExitConfigError
 		}
 	} else {

@@ -14,7 +14,7 @@ The `dbchecker` test suite is built according to the following core software eng
 * **Layered Testing Pyramid**:
   1. **Unit Tests**: Isolated logic testing for config validation, crypto resolution, envelope encryption/decryption, and driver factory instantiation (`go test ./...` completes in <1s).
   2. **Mock Driver Integration Tests**: Custom `MockTestDB` and `MockLibDB` drivers simulate network drops, ping failures, query syntax errors, and decryption failures.
-  3. **Reusable Test Utility Infrastructure (`testutil`)**: Decoupled helper package (`criticalsys.net/dbchecker/testutil`) providing container lifecycle orchestration (`StartLiveDatabaseCluster`, `WaitForDatabase`, `PruneContainers`, `GetDockerPrefix`, `IsDockerAvailable`).
+  3. **Reusable Test Utility Infrastructure (`testutil`)**: Decoupled helper package providing container lifecycle orchestration (`StartLiveDatabaseCluster`, `WaitForDatabase`, `PruneContainers`, `GetDockerPrefix`, `GetDockerHost`, `IsDockerAvailable`). Handles WSL2 networking on Windows (containers bind to WSL IP, not localhost).
   4. **Isolated Live Container & mTLS Integration Suite (`test/` + `//go:build integration`)**: Ephemeral multi-container harness (**PostgreSQL 18**, **MySQL 8.4**, **MongoDB 8.0**, **MSSQL**, **Oracle 21c Slim**) with mTLS verification stored in `test/` package under build tag `//go:build integration`.
 
 ---
@@ -134,7 +134,7 @@ graph TD
 ### 4.1 Crypto & Key Resolution
 | Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
 | :--- | :--- | :--- |
-| `TestCryptoIntegration` | Verifies master key resolution from env/raw strings, AES-256-GCM envelope encryption/decryption, Base64 formatting, and RAM buffer zeroing via `crypto.ZeroBuffer`. | **PASS**: Decrypted plaintext matches original; buffer zeroed. **FAIL**: Ciphertext mismatch or zeroing error. |
+| `TestCryptoIntegration` | Verifies master key resolution from env/raw strings, AES-256-GCM envelope encryption/decryption, Base64 formatting, `DecryptBytes` (returns zeroable `[]byte`), and RAM buffer zeroing via `crypto.ZeroBuffer`. | **PASS**: Decrypted plaintext matches original; `DecryptBytes` returns `[]byte`; buffer zeroed to all 0x00. **FAIL**: Ciphertext mismatch or zeroing error. |
 
 ### 4.2 Configuration & Path Scoping
 | Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
@@ -171,6 +171,8 @@ graph TD
 | :--- | :--- | :--- |
 | `TestLibraryCheck` | Tests programmatic `dbchecker.Check` library API across success, decryption fail, driver init fail, connect fail, ping fail, and healthcheck fail steps. | **PASS**: Correct `Result` and `FailedStep` returned. **FAIL**: Step mismatch. |
 | `TestLibraryCheckAll` | Tests concurrent batch check execution via `dbchecker.CheckAll` using functional options (`WithTimeout`, `WithConcurrency`), nil config, and empty config inputs. | **PASS**: Results array returned matching input DBs. **FAIL**: Concurrency race or missing results. |
+| `TestCheckAllDeterministicOrdering` | Verifies that `CheckAll` returns results sorted alphabetically by database ID for reproducible output across multiple runs. | **PASS**: Results consistently ordered alphabetically. **FAIL**: Random ordering between runs. |
+| `TestResultJSONSerialization` | Verifies JSON serialization uses `duration_ms` (milliseconds) and `error` (string) fields instead of raw `Duration` (nanoseconds) and `Err` (empty object). | **PASS**: JSON contains `duration_ms` and readable `error` string. **FAIL**: Nanoseconds or empty error object. |
 | `TestRunAppCLIInPkg` | Tests `dbchecker.RunAppCLI` execution, flag parsing, error path exit codes, and `-json` output formatting within library package. | **PASS**: Granular exit codes (0 to 5) match expected errors. **FAIL**: Incorrect exit code. |
 | `TestMapStepToExitCodeDefault` | Verifies fallback mapping of unrecognized `FailedStep` strings to default `ExitCodeCheckFailed` (5). | **PASS**: Exit code 5 returned. **FAIL**: Incorrect fallback code. |
 
@@ -200,15 +202,17 @@ graph TD
 
 | Package Path | Package Category | Statement Coverage | Required Threshold | Status |
 | :--- | :--- | :---: | :---: | :---: |
-| `criticalsys.net/dbchecker/crypto` | Crypto & Key Resolution | **100.0%** | 80.0% | **PASS** |
-| `criticalsys.net/dbchecker/pkg/dbchecker` | Public Library & CLI Harness | **92.4%** | 80.0% | **PASS** |
-| `criticalsys.net/dbchecker/config` | Configuration Management | **90.3%** | 80.0% | **PASS** |
-| `criticalsys.net/dbchecker/database` | Database Driver Registry | **84.2%** | 80.0% | **PASS** |
-| `criticalsys.net/dbchecker` | Root Entrypoint & Unit Lifecycle | **83.3%** | 80.0% | **PASS** |
-| `criticalsys.net/dbchecker/cmd/dbchecker` | Binary CLI Entrypoint | **50.0%** (100% `runApp`) | 50.0% | **PASS** |
-| `criticalsys.net/dbchecker/test` | Live Integration Suite (`//go:build integration`) | **Integration Suite** | N/A | **PASS** |
-| `criticalsys.net/dbchecker/testutil` | Reusable Test Utility Module | **Test Infrastructure** | N/A | **PASS** |
-| **OVERALL PROJECT TOTAL** | **Core Logic Codebase (excl. cmd main / test infrastructure)** | **88.6%** | **80.0%** | **PASS** |
+| `dbchecker/crypto` | Crypto & Key Resolution | **100.0%** | 80.0% | **PASS** |
+| `dbchecker/config` | Configuration Management | **95.8%** | 80.0% | **PASS** |
+| `dbchecker/pkg/dbchecker` | Public Library & CLI Harness | **93.1%** | 80.0% | **PASS** |
+| `dbchecker/database` | Database Driver Registry | **89.6%** | 80.0% | **PASS** |
+| `dbchecker` | Root Entrypoint & Unit Lifecycle | **50.0%** | 50.0% | **PASS** |
+| `dbchecker/cmd/dbchecker` | Binary CLI Entrypoint | **50.0%** (100% `runApp`) | 50.0% | **PASS** |
+| `dbchecker/test` | Live Integration Suite (`//go:build integration`) | **Integration Suite** | N/A | **PASS** |
+| `dbchecker/testutil` | Reusable Test Utility Module | **Test Infrastructure** | N/A | **PASS** |
+| **CORE PACKAGES TOTAL** | **Excl. testutil & main() entry points** | **91.6%** | **80.0%** | **PASS** |
+
+> **Note:** The `testutil` package has 0% coverage in standard test runs because it is test infrastructure that is only exercised by integration tests (requiring the `integration` build tag and Docker). The `main()` functions are untestable (call `os.Exit()`), but `runApp()` which contains the actual logic is at 100%.
 
 > [!NOTE]
 > **Mandatory Coverage Threshold**: Every package in the repository MUST maintain **80.0% or higher** statement coverage at all times.
@@ -398,6 +402,10 @@ To guarantee real-world database engine compatibility, the test suite integrates
 Standard `go test` commands execute identically across Windows (PowerShell/CMD), Linux, and macOS.
 
 ```bash
+# Quick Start: Use the test runner script (Bash/WSL)
+./test/run_tests.sh              # Unit tests only
+./test/run_tests.sh --integration  # Unit + integration tests (requires Docker)
+
 # 1. Run all unit and mock integration tests across all packages (<1s execution)
 go test -v ./...
 

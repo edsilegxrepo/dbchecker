@@ -234,3 +234,131 @@ func TestParseDSN_AllSpecialCharacters(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDSN_SQLiteEdgeCases(t *testing.T) {
+	// SQLite with file: prefix
+	dsn1 := "sqlite://file:/path/to/db.sqlite"
+	cfg1, _, err := config.ParseDSN(dsn1)
+	if err != nil {
+		t.Fatalf("ParseDSN failed for sqlite file: DSN: %v", err)
+	}
+	if cfg1.Type != "sqlite" {
+		t.Errorf("Expected type 'sqlite', got %q", cfg1.Type)
+	}
+	if cfg1.Name != "/path/to/db.sqlite" {
+		t.Errorf("Expected name '/path/to/db.sqlite', got %q", cfg1.Name)
+	}
+
+	// SQLite with plain path
+	dsn2 := "sqlite:///var/data/app.db"
+	cfg2, _, err := config.ParseDSN(dsn2)
+	if err != nil {
+		t.Fatalf("ParseDSN failed for sqlite plain path: %v", err)
+	}
+	if cfg2.Name != "/var/data/app.db" {
+		t.Errorf("Expected name '/var/data/app.db', got %q", cfg2.Name)
+	}
+}
+
+func TestParseDSN_PostgreSQLEdgeCases(t *testing.T) {
+	// PostgreSQL with 'postgresql' scheme (alias)
+	dsn := "postgresql://user:pass@localhost:5432/mydb"
+	cfg, pass, err := config.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN failed for postgresql alias: %v", err)
+	}
+	if cfg.Type != "postgres" {
+		t.Errorf("Expected type 'postgres' (normalized), got %q", cfg.Type)
+	}
+	if pass != "pass" {
+		t.Errorf("Expected password 'pass', got %q", pass)
+	}
+
+	// PostgreSQL without port (should leave port as 0)
+	dsn2 := "postgres://user:pass@localhost/mydb"
+	cfg2, _, err := config.ParseDSN(dsn2)
+	if err != nil {
+		t.Fatalf("ParseDSN failed for postgres without port: %v", err)
+	}
+	if cfg2.Port != 0 {
+		t.Errorf("Expected port 0 (not specified), got %d", cfg2.Port)
+	}
+
+	// PostgreSQL without password
+	dsn3 := "postgres://user@localhost:5432/mydb"
+	cfg3, pass3, err := config.ParseDSN(dsn3)
+	if err != nil {
+		t.Fatalf("ParseDSN failed for postgres without password: %v", err)
+	}
+	if cfg3.User != "user" {
+		t.Errorf("Expected user 'user', got %q", cfg3.User)
+	}
+	if pass3 != "" {
+		t.Errorf("Expected empty password, got %q", pass3)
+	}
+}
+
+func TestParseDSN_MySQLEdgeCases(t *testing.T) {
+	// MySQL without port in address (just host)
+	dsn := "user:pass@tcp(localhost)/mydb"
+	cfg, _, err := config.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN failed for mysql without port: %v", err)
+	}
+	if cfg.Host != "localhost" {
+		t.Errorf("Expected host 'localhost', got %q", cfg.Host)
+	}
+
+	// MySQL with password containing no special chars (no unescape needed)
+	dsn2 := "user:simplepass@tcp(127.0.0.1:3306)/db"
+	_, pass, err := config.ParseDSN(dsn2)
+	if err != nil {
+		t.Fatalf("ParseDSN failed: %v", err)
+	}
+	if pass != "simplepass" {
+		t.Errorf("Expected 'simplepass', got %q", pass)
+	}
+}
+
+func TestParseDSN_MSSQLEdgeCases(t *testing.T) {
+	// MSSQL with encrypt=false (should map to TLSMode disable)
+	dsn := "sqlserver://sa:pass@localhost:1433?database=testdb&encrypt=false"
+	cfg, _, err := config.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN failed: %v", err)
+	}
+	if cfg.TLSMode != "disable" {
+		t.Errorf("Expected TLSMode 'disable' for encrypt=false, got %q", cfg.TLSMode)
+	}
+
+	// MSSQL without database param (Name should be empty path)
+	dsn2 := "sqlserver://sa:pass@localhost:1433"
+	cfg2, _, err := config.ParseDSN(dsn2)
+	if err != nil {
+		t.Fatalf("ParseDSN failed: %v", err)
+	}
+	if cfg2.Name != "" {
+		t.Errorf("Expected empty Name when no database param, got %q", cfg2.Name)
+	}
+}
+
+func TestParseDSN_MongoDBEdgeCases(t *testing.T) {
+	// MongoDB without authSource (uses path as db name)
+	dsn := "mongodb://user:pass@localhost:27017/mydb"
+	cfg, _, err := config.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN failed: %v", err)
+	}
+	if cfg.Name != "mydb" {
+		t.Errorf("Expected Name 'mydb' from path, got %q", cfg.Name)
+	}
+}
+
+func TestParseDSN_InvalidDSN(t *testing.T) {
+	// Invalid URL that can't be parsed
+	dsn := "://invalid"
+	_, _, err := config.ParseDSN(dsn)
+	if err == nil {
+		t.Errorf("Expected error for invalid DSN, got nil")
+	}
+}

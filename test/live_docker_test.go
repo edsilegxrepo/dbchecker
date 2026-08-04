@@ -1,6 +1,20 @@
 //go:build integration
 // +build integration
 
+/*
+Integration tests for live Docker database containers.
+
+Test Strategy:
+  - Spins up 5 database engines (Postgres, MySQL, MongoDB, MSSQL, Oracle) via testutil.StartLiveDatabaseCluster()
+  - Each engine tested in parallel subtest for connect/ping/healthcheck
+  - Full CLI batch scan validates end-to-end encrypted credential flow
+  - Negative tests verify authentication rejection with wrong passwords
+
+Requirements:
+  - Docker daemon available (test skipped if not)
+  - ~3 minutes for all containers to reach ready state (Oracle slowest)
+  - Build tag "integration" required: go test -tags integration ./test/...
+*/
 package test
 
 import (
@@ -17,6 +31,7 @@ import (
 	"github.com/edsilegxrepo/dbchecker/testutil"
 )
 
+// TestLiveDockerContainers exercises all database drivers against real containers.
 func TestLiveDockerContainers(t *testing.T) {
 	cluster := testutil.StartLiveDatabaseCluster(t, "dbchecker-test")
 	ctx := context.Background()
@@ -155,7 +170,7 @@ func TestLiveDockerContainers(t *testing.T) {
 databases:
   live_postgres:
     type: postgres
-    host: 127.0.0.1
+    host: %s
     port: %d
     user: testuser
     name: testdb
@@ -163,7 +178,7 @@ databases:
     health_query: "SELECT 1;"
   live_mysql:
     type: mysql
-    host: 127.0.0.1
+    host: %s
     port: %d
     user: root
     name: testdb
@@ -171,7 +186,7 @@ databases:
     health_query: "SELECT 1;"
   live_mongo:
     type: mongodb
-    host: 127.0.0.1
+    host: %s
     port: %d
     user: testuser
     name: testdb
@@ -179,7 +194,7 @@ databases:
     health_query: '{"dbStats": 1}'
   live_mssql:
     type: sqlserver
-    host: 127.0.0.1
+    host: %s
     port: %d
     user: sa
     name: master
@@ -188,13 +203,13 @@ databases:
     health_query: "SELECT 1;"
   live_oracle:
     type: oracle
-    host: 127.0.0.1
+    host: %s
     port: %d
     user: system
     name: XEPDB1
     password: %s
     health_query: "SELECT 1 FROM DUAL"
-`, cluster.PgPort, encPass, cluster.MysqlPort, encPass, cluster.MongoPort, encPass, cluster.MssqlPort, encMsPass, cluster.OraclePort, encMsPass)
+`, cluster.DockerHost, cluster.PgPort, encPass, cluster.DockerHost, cluster.MysqlPort, encPass, cluster.DockerHost, cluster.MongoPort, encPass, cluster.DockerHost, cluster.MssqlPort, encMsPass, cluster.DockerHost, cluster.OraclePort, encMsPass)
 
 		if err := os.WriteFile(configPath, []byte(yamlData), 0o600); err != nil {
 			t.Fatalf("Failed to write yaml config: %v", err)

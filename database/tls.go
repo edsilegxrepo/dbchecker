@@ -1,3 +1,17 @@
+/*
+TLS configuration builder for database connections.
+
+TLS Modes (from config.SupportedTLSModes):
+  - ""/disable: No TLS, plaintext connection
+  - require: TLS enabled, skip server certificate verification
+  - verify-ca: TLS with CA verification (custom or system CA)
+  - verify-full: TLS with CA + hostname verification
+
+Security:
+  - Minimum TLS 1.2 enforced
+  - Certificate files read via os.OpenRoot to prevent directory traversal
+  - mTLS requires both client cert and key paths
+*/
 package database
 
 import (
@@ -6,15 +20,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-)
 
-var validTLSModes = map[string]struct{}{
-	"disable":     {},
-	"require":     {},
-	"verify-ca":   {},
-	"verify-full": {},
-	"":            {},
-}
+	"github.com/edsilegxrepo/dbchecker/config"
+)
 
 // readScopedFile opens the parent directory of path using os.OpenRoot (Go 1.24+)
 // to prevent directory traversal and securely read certificate files.
@@ -60,13 +68,14 @@ func configureInsecureTransport(cfg *tls.Config) {
 }
 
 // buildTLSConfig creates a tls.Config based on the requested mode and certificate paths.
-// It uses os.OpenRoot (Go 1.24+) to securely load CA and client certificates from disk.
+// Uses config.SupportedTLSModes for validation (centralized TLS mode definitions).
+// Returns nil config for "disable" or empty mode (plaintext connection).
 // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 // nosemgrep: bypass-tls-verification
 //
 //nolint:gosec // TLS mode "require" explicitly requests skipping CA verification per user configuration
 func buildTLSConfig(tlsMode, serverName, rootCertPath, clientCertPath, clientKeyPath string) (*tls.Config, error) {
-	if _, ok := validTLSModes[tlsMode]; !ok {
+	if _, ok := config.SupportedTLSModes[tlsMode]; !ok {
 		return nil, fmt.Errorf("invalid tls_mode: %s", tlsMode)
 	}
 

@@ -1,6 +1,25 @@
 //go:build integration
 // +build integration
 
+/*
+End-to-end integration tests for the dbchecker application.
+
+Test Strategy:
+
+  - TestLiveEndToEndCLI: Full stack test using SQLite (no external deps)
+    1. Dynamic key generation via libsecsecrets
+    2. CLI encryption via -encrypt flag
+    3. YAML config loading with os.OpenRoot scoping
+    4. Database connect/ping/healthcheck execution
+
+  - TestLiveExternalDBIntegration: Framework for external database testing
+    Requires LIVE_*_HOST env vars (MySQL, Postgres, MongoDB)
+
+Requirements:
+  - Build tag "integration": go test -tags integration ./test/...
+  - No Docker required for SQLite tests
+  - External DB tests skipped if env vars not set
+*/
 package test
 
 import (

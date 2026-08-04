@@ -1,3 +1,21 @@
+/*
+Package testutil provides Docker container lifecycle management for integration tests.
+
+Core Functions:
+  - GetDockerHost(): Returns container-accessible IP (handles WSL2 networking on Windows)
+  - RunEphemeralContainer(): Starts a container with dynamic port mapping, auto-cleanup
+  - WaitForDatabase(): Polls until database accepts connections or timeout
+  - StartLiveDatabaseCluster(): Orchestrates 5-engine cluster (Postgres, MySQL, Mongo, MSSQL, Oracle)
+
+WSL2 Considerations:
+  - Containers bind to WSL's IP, not localhost (requires GetDockerHost())
+  - Network latency requires extended timeouts (30s for commands, 30-45s for DB ready)
+  - Docker commands prefixed with "wsl" on Windows
+
+Security:
+  - Fresh AES-256 key generated per test run via libsecsecrets.GenerateKey()
+  - Passwords encrypted before storage in test configs
+*/
 package testutil
 
 import (
@@ -21,6 +39,7 @@ import (
 	"github.com/edsilegxrepo/secretprotector/pkg/libsecsecrets"
 )
 
+// lastAllocatedPort tracks port allocation to avoid conflicts across concurrent tests.
 var lastAllocatedPort atomic.Int32
 
 func init() {
@@ -218,7 +237,8 @@ func WaitForDatabase(ctx context.Context, driverType string, cfg config.Database
 	return fmt.Errorf("database %s at %s:%d did not become ready within %v: %v", driverType, cfg.Host, cfg.Port, timeout, lastErr)
 }
 
-// LiveCluster encapsulates mapped ports, DatabaseConfig structs, and secretprotector credentials for all 5 live containers.
+// LiveCluster encapsulates all 5 database containers, their connection configs,
+// and encrypted credentials. Used by integration tests to run full-stack checks.
 type LiveCluster struct {
 	DockerHost          string
 	MasterKeyHex        string
@@ -254,9 +274,15 @@ func StartLiveDatabaseCluster(t *testing.T, filterPrefix string) *LiveCluster {
 
 	PruneContainers(filterPrefix)
 
+	// Generate a fresh cryptographic key for each test run
+	masterKeyHex, err := libsecsecrets.GenerateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate master key: %v", err)
+	}
+
 	cluster := &LiveCluster{
 		DockerHost:   GetDockerHost(),
-		MasterKeyHex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		MasterKeyHex: masterKeyHex,
 	}
 
 	keyBytes, err := hex.DecodeString(cluster.MasterKeyHex)

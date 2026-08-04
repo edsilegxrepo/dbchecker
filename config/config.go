@@ -1,6 +1,15 @@
 /*
 Package config handles the loading and validation of the database checker configuration.
 It supports YAML-based configuration for multiple database instances and their connection details.
+
+Security:
+  - Uses os.OpenRoot (Go 1.24+) to prevent directory traversal attacks
+  - Passwords stored as encrypted Base64 ciphertext, decrypted at runtime
+  - Config files should have 0600 permissions (enforced by caller)
+
+Shared Constants:
+  - SupportedTLSModes: Centralized TLS mode validation used by both config
+    validation and database driver implementations (DRY principle)
 */
 package config
 
@@ -33,7 +42,10 @@ type Config struct {
 	Databases map[string]DatabaseConfig `yaml:"databases"`
 }
 
-var supportedTLSModes = map[string]struct{}{"disable": {}, "require": {}, "verify-ca": {}, "verify-full": {}, "": {}}
+// SupportedTLSModes defines valid TLS mode values for database connections.
+// Single source of truth used by config.Validate() and database/tls.go.
+// Modes: "" (default=disable), "disable", "require", "verify-ca", "verify-full"
+var SupportedTLSModes = map[string]struct{}{"disable": {}, "require": {}, "verify-ca": {}, "verify-full": {}, "": {}}
 
 // Validate checks the configuration for any unsupported or invalid values.
 func (c *Config) Validate(isSupportedType func(string) bool) error {
@@ -41,7 +53,7 @@ func (c *Config) Validate(isSupportedType func(string) bool) error {
 		if isSupportedType != nil && !isSupportedType(dbConfig.Type) {
 			return fmt.Errorf("database %q has unsupported type: %s", id, dbConfig.Type)
 		}
-		if _, ok := supportedTLSModes[dbConfig.TLSMode]; !ok {
+		if _, ok := SupportedTLSModes[dbConfig.TLSMode]; !ok {
 			return fmt.Errorf("database %q has unsupported tls_mode: %s", id, dbConfig.TLSMode)
 		}
 	}

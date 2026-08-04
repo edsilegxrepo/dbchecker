@@ -1,3 +1,15 @@
+/*
+Unit tests for the dbchecker CLI entrypoint.
+
+Test Strategy:
+  - Uses mock database drivers to simulate success/failure at each lifecycle stage
+  - Tests CLI flag parsing, exit code semantics, and end-to-end execution
+  - Mock drivers registered via init() for deterministic test behavior
+
+Coverage:
+  - Check() lifecycle: success, decryption error, unsupported type, connect/ping/health failures
+  - RunAppCLI: version flag, key resolution, encryption, config loading, batch/single mode
+*/
 package main
 
 import (
@@ -15,6 +27,7 @@ import (
 	pkgdb "github.com/edsilegxrepo/dbchecker/pkg/dbchecker"
 )
 
+// MockTestDB is a configurable mock database for testing lifecycle stages.
 type MockTestDB struct {
 	connectErr     error
 	pingErr        error
@@ -56,7 +69,6 @@ func init() {
 func TestCheckDatabaseLifecycle(t *testing.T) {
 	ctx := context.Background()
 	secretKey := []byte("12345678901234567890123456789012") // 32 bytes
-	var stdout, stderr bytes.Buffer
 
 	// Encrypt a mock password
 	encryptedPass, err := crypto.Encrypt(ctx, "secret_password", secretKey)
@@ -71,8 +83,9 @@ func TestCheckDatabaseLifecycle(t *testing.T) {
 		HealthQuery: "SELECT 1",
 	}
 
-	if err := checkDatabase(ctx, cfgSuccess, "test_success", secretKey, 5*time.Second, &stdout, &stderr); err != nil {
-		t.Errorf("Expected checkDatabase success, got: %v", err)
+	res := pkgdb.Check(ctx, "test_success", cfgSuccess, secretKey, 5*time.Second)
+	if !res.Success {
+		t.Errorf("Expected Check success, got: %v", res.Err)
 	}
 
 	// 2. Decryption error case
@@ -80,8 +93,9 @@ func TestCheckDatabaseLifecycle(t *testing.T) {
 		Type:     "mock_test_db",
 		Password: "not_a_base64_ciphertext",
 	}
-	if err := checkDatabase(ctx, cfgBadPass, "test_bad_pass", secretKey, 5*time.Second, &stdout, &stderr); err == nil {
-		t.Errorf("Expected error for invalid password decryption, got nil")
+	res = pkgdb.Check(ctx, "test_bad_pass", cfgBadPass, secretKey, 5*time.Second)
+	if res.Success {
+		t.Errorf("Expected error for invalid password decryption, got success")
 	}
 
 	// 3. Unsupported DB type case
@@ -89,8 +103,9 @@ func TestCheckDatabaseLifecycle(t *testing.T) {
 		Type:     "non_existent_driver_xyz",
 		Password: encryptedPass,
 	}
-	if err := checkDatabase(ctx, cfgUnsupported, "test_unsupported", secretKey, 5*time.Second, &stdout, &stderr); err == nil {
-		t.Errorf("Expected error for unsupported DB type, got nil")
+	res = pkgdb.Check(ctx, "test_unsupported", cfgUnsupported, secretKey, 5*time.Second)
+	if res.Success {
+		t.Errorf("Expected error for unsupported DB type, got success")
 	}
 
 	// 4. Connection failure case
@@ -98,8 +113,9 @@ func TestCheckDatabaseLifecycle(t *testing.T) {
 		Type:     "mock_fail_connect",
 		Password: encryptedPass,
 	}
-	if err := checkDatabase(ctx, cfgFailConnect, "test_fail_connect", secretKey, 5*time.Second, &stdout, &stderr); err == nil {
-		t.Errorf("Expected error for Connect failure, got nil")
+	res = pkgdb.Check(ctx, "test_fail_connect", cfgFailConnect, secretKey, 5*time.Second)
+	if res.Success {
+		t.Errorf("Expected error for Connect failure, got success")
 	}
 
 	// 5. Ping failure case
@@ -107,8 +123,9 @@ func TestCheckDatabaseLifecycle(t *testing.T) {
 		Type:     "mock_fail_ping",
 		Password: encryptedPass,
 	}
-	if err := checkDatabase(ctx, cfgFailPing, "test_fail_ping", secretKey, 5*time.Second, &stdout, &stderr); err == nil {
-		t.Errorf("Expected error for Ping failure, got nil")
+	res = pkgdb.Check(ctx, "test_fail_ping", cfgFailPing, secretKey, 5*time.Second)
+	if res.Success {
+		t.Errorf("Expected error for Ping failure, got success")
 	}
 
 	// 6. HealthCheck failure case
@@ -117,8 +134,9 @@ func TestCheckDatabaseLifecycle(t *testing.T) {
 		Password:    encryptedPass,
 		HealthQuery: "SELECT 1",
 	}
-	if err := checkDatabase(ctx, cfgFailHealth, "test_fail_health", secretKey, 5*time.Second, &stdout, &stderr); err == nil {
-		t.Errorf("Expected error for HealthCheck failure, got nil")
+	res = pkgdb.Check(ctx, "test_fail_health", cfgFailHealth, secretKey, 5*time.Second)
+	if res.Success {
+		t.Errorf("Expected error for HealthCheck failure, got success")
 	}
 }
 

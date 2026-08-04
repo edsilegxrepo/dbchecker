@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.3] - 2026-08-04
+
+### Added
+* **DecryptBytes for Memory Hygiene**: Added `crypto.DecryptBytes()` returning `[]byte` instead of `string`, enabling password buffer zeroing via `crypto.ZeroBuffer()` after use. Passwords in Go strings cannot be zeroed from memory.
+* **Deterministic Result Ordering**: `CheckAll()` now returns results sorted alphabetically by database ID for reproducible output across runs (Go map iteration is random).
+* **JSON Serialization Fixes**: Added `DurationMs` (int64 milliseconds) and `ErrorMsg` (string) fields to `Result` struct. Raw `Duration` (nanoseconds) and `Err` (empty object `{}`) are excluded from JSON via `json:"-"` tags.
+* **Comprehensive Test Coverage**: Added 15+ new unit tests covering all TLS modes, DSN parsing edge cases, and driver lifecycle for MySQL, PostgreSQL, SQLite, MongoDB, SQL Server, and Oracle. Core package coverage now at **91.6%**.
+* **Test Runner Script**: Added `test/run_tests.sh` for convenient test execution with optional `--integration` flag.
+
+### Changed
+* **Documentation Updates**: Revised `README.md`, `ARCHITECTURE.md`, `DESIGN.md`, and `TESTING.md` to reflect new `DecryptBytes` usage, deterministic ordering, corrected JSON output examples, and updated coverage statistics.
+
+### Fixed
+* **MongoDB Close Timeout**: `MongoDB.Close()` now uses a 5-second timeout context instead of unbounded `context.Background()` to prevent indefinite blocking.
+* **MySQL TLS Config Key Collision**: TLS config registry key now includes SHA256 hash of cert paths, avoiding conflicts when same host:port uses different certificates.
+
+---
+
 ## [v1.0.2] - 2026-07-29
 
 ### Added

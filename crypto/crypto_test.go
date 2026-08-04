@@ -1,3 +1,16 @@
+/*
+Integration tests for the crypto wrapper around secretprotector/libsecsecrets.
+
+Test Strategy:
+  - Verifies end-to-end: GenerateKey -> ResolveKey -> Encrypt -> Decrypt -> ZeroBuffer
+  - Tests DecryptBytes returns []byte (zeroable) vs Decrypt returns string (not zeroable)
+  - Validates ZeroBuffer clears sensitive data from memory
+
+Security Verification:
+  - Ciphertext is distinct from plaintext (AES-256-GCM)
+  - Decryption recovers original plaintext
+  - ZeroBuffer overwrites all bytes with 0x00
+*/
 package crypto_test
 
 import (
@@ -9,6 +22,7 @@ import (
 	"github.com/edsilegxrepo/dbchecker/crypto"
 )
 
+// TestCryptoIntegration verifies the full encrypt/decrypt lifecycle with memory hygiene.
 func TestCryptoIntegration(t *testing.T) {
 	ctx := context.Background()
 
@@ -40,7 +54,7 @@ func TestCryptoIntegration(t *testing.T) {
 		t.Errorf("Ciphertext should be a non-empty base64 string distinct from plaintext")
 	}
 
-	// 4. Decrypt password
+	// 4. Decrypt password (string version)
 	decrypted, err := crypto.Decrypt(ctx, ciphertext, keyBytes)
 	if err != nil {
 		t.Fatalf("Decryption failed: %v", err)
@@ -48,5 +62,23 @@ func TestCryptoIntegration(t *testing.T) {
 
 	if decrypted != plaintext {
 		t.Errorf("Expected decrypted text %q, got %q", plaintext, decrypted)
+	}
+
+	// 5. DecryptBytes returns []byte that can be zeroed
+	decryptedBytes, err := crypto.DecryptBytes(ctx, ciphertext, keyBytes)
+	if err != nil {
+		t.Fatalf("DecryptBytes failed: %v", err)
+	}
+
+	if string(decryptedBytes) != plaintext {
+		t.Errorf("Expected DecryptBytes result %q, got %q", plaintext, string(decryptedBytes))
+	}
+
+	// Verify ZeroBuffer clears the data
+	crypto.ZeroBuffer(decryptedBytes)
+	for i, b := range decryptedBytes {
+		if b != 0 {
+			t.Errorf("ZeroBuffer failed to clear byte at index %d: got %d", i, b)
+		}
 	}
 }

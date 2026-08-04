@@ -1,8 +1,31 @@
+/*
+Package dbchecker checker implements the core database connectivity verification logic.
+
+Objectives:
+  - Perform secure credential decryption with memory hygiene
+  - Execute multi-step health checks (connect → ping → query)
+  - Support concurrent batch checking with configurable parallelism
+  - Provide deterministic, sorted result ordering for reproducibility
+
+Check Lifecycle (per database):
+ 1. Decrypt password using DecryptBytes (zeroable []byte)
+ 2. Initialize driver from registry
+ 3. Establish connection with timeout context
+ 4. Verify connectivity via Ping
+ 5. Execute optional health query
+ 6. Zero password buffer on completion (defer)
+
+Security Model:
+  - Passwords decrypted to []byte, zeroed after use via defer
+  - Context timeout propagated through all network operations
+  - Early exit on any failure with granular step identification
+*/
 package dbchecker
 
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -10,6 +33,15 @@ import (
 	"github.com/edsilegxrepo/dbchecker/crypto"
 	"github.com/edsilegxrepo/dbchecker/database"
 )
+
+// finalizeResult populates computed fields for JSON serialization before returning.
+// Converts Duration to milliseconds and Err to string for proper JSON output.
+func finalizeResult(res *Result) {
+	res.DurationMs = res.Duration.Milliseconds()
+	if res.Err != nil {
+		res.ErrorMsg = res.Err.Error()
+	}
+}
 
 // Check performs a single connectivity and health check lifecycle for a DatabaseConfig.
 // It returns a strongly-typed Result struct with duration metrics, granular exit codes, and step error categorization.
@@ -27,15 +59,18 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
-	// 1. Decrypt password
-	decryptedPassword, err := crypto.Decrypt(ctx, dbConfig.Password, secretKey)
+	// 1. Decrypt password (use DecryptBytes so we can zero the buffer after use)
+	decryptedPasswordBytes, err := crypto.DecryptBytes(ctx, dbConfig.Password, secretKey)
 	if err != nil {
 		res.Duration = time.Since(startTime)
 		res.FailedStep = StepDecryption
 		res.ExitCode = MapStepToExitCode(res.FailedStep)
 		res.Err = fmt.Errorf("password decryption failed for %s: %w", id, err)
+		finalizeResult(&res)
 		return res
 	}
+	defer crypto.ZeroBuffer(decryptedPasswordBytes)
+	decryptedPassword := string(decryptedPasswordBytes)
 
 	// 2. Initialize database driver
 	db, err := database.New(dbConfig.Type)
@@ -44,6 +79,7 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 		res.FailedStep = StepDriverInit
 		res.ExitCode = MapStepToExitCode(res.FailedStep)
 		res.Err = err
+		finalizeResult(&res)
 		return res
 	}
 
@@ -53,6 +89,7 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 		res.FailedStep = StepConnect
 		res.ExitCode = MapStepToExitCode(res.FailedStep)
 		res.Err = fmt.Errorf("connection failed for %s: %w", id, err)
+		finalizeResult(&res)
 		return res
 	}
 	defer func() {
@@ -67,6 +104,7 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 		res.FailedStep = StepPing
 		res.ExitCode = MapStepToExitCode(res.FailedStep)
 		res.Err = fmt.Errorf("ping failed for %s: %w", id, err)
+		finalizeResult(&res)
 		return res
 	}
 
@@ -77,6 +115,7 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 			res.FailedStep = StepHealthCheck
 			res.ExitCode = MapStepToExitCode(res.FailedStep)
 			res.Err = fmt.Errorf("health check failed for %s: %w", id, err)
+			finalizeResult(&res)
 			return res
 		}
 	}
@@ -84,11 +123,13 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 	res.Success = true
 	res.ExitCode = ExitSuccess
 	res.Duration = time.Since(startTime)
+	finalizeResult(&res)
 	return res
 }
 
 // CheckAll executes batch connectivity and health checks concurrently across all databases in cfg.
-// It accepts functional options to configure timeout and worker concurrency.
+// Results are returned in deterministic alphabetical order by database ID for reproducible output.
+// Concurrency is controlled via semaphore; default 10 parallel workers.
 func CheckAll(ctx context.Context, cfg *config.Config, secretKey []byte, opts ...Option) []Result {
 	options := DefaultOptions()
 	for _, opt := range opts {
@@ -99,14 +140,21 @@ func CheckAll(ctx context.Context, cfg *config.Config, secretKey []byte, opts ..
 		return nil
 	}
 
-	results := make([]Result, len(cfg.Databases))
+	// Sort database IDs for deterministic result ordering (Go map iteration is random)
+	ids := make([]string, 0, len(cfg.Databases))
+	for id := range cfg.Databases {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	results := make([]Result, len(ids))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	idx := 0
 
 	sem := make(chan struct{}, options.Concurrency)
 
-	for id, dbConfig := range cfg.Databases {
+	for idx, id := range ids {
+		dbConfig := cfg.Databases[id]
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(currentIndex int, targetID string, targetConfig config.DatabaseConfig) {
@@ -119,7 +167,6 @@ func CheckAll(ctx context.Context, cfg *config.Config, secretKey []byte, opts ..
 			results[currentIndex] = res
 			mu.Unlock()
 		}(idx, id, dbConfig)
-		idx++
 	}
 
 	wg.Wait()

@@ -83,8 +83,9 @@ graph TD
    - Thread-safe driver factory instantiation (`database.New`) using `sync.RWMutex` locks allows zero-downtime driver additions.
 
 4. **AES-256-GCM Envelope Encryption (`crypto/`)**:
-   - Integrates with `criticalsys/secretprotector/pkg/libsecsecrets` to decrypt database passphrases in memory at connection time.
+   - Integrates with `secretprotector/pkg/libsecsecrets` to decrypt database passphrases in memory at connection time.
    - Master keys are resolved hierarchically (`raw` string > `DB_SECRET_KEY` env var > `-key-file` path).
+   - Passwords are decrypted via `DecryptBytes` (returns `[]byte`) rather than `Decrypt` (returns `string`) to enable memory zeroing after use.
 
 5. **Directory Scoping via `os.OpenRoot` (Go 1.24+)**:
    - Replaces traditional un-scoped file opens with `os.OpenRoot` directory handles for loading YAML configuration files, TLS CA certificates, and mTLS keypairs, preventing path traversal vulnerabilities (`../`).
@@ -105,7 +106,7 @@ graph TD
 * **Worker Pool Concurrency**: `CheckAll` employs bounded semaphore channels (`chan struct{}`) to throttle parallel database checks according to `WithConcurrency(n)`, preventing socket exhaustion.
 * **Connection Pool Bounds**: Configures `SetMaxOpenConns(1)` and `SetMaxIdleConns(1)` on diagnostic connection handles to avoid socket accumulation during batch checks.
 * **In-Memory Credential Decryption**: Passwords are decrypted directly in RAM buffers and never written to disk or temporary files.
-* **RAM Hygiene**: `crypto.ZeroBuffer` clears raw key byte arrays immediately after resolution.
+* **RAM Hygiene**: `crypto.ZeroBuffer` clears raw key byte arrays and decrypted password buffers immediately after use. Passwords are decrypted via `DecryptBytes` (returns `[]byte`) to enable zeroing.
 * **Fast Failure Categorization**: Short-circuits remaining check phases (`Ping`, `HealthCheck`) if early phases (`Decryption`, `Connect`) fail.
 
 ---
@@ -133,9 +134,9 @@ sequenceDiagram
     Config-->>Main: Return Config Struct
     Main->>Library: CheckAll(ctx, cfg, key, options)
     
-    loop For Each Configured Database
-        Library->>Crypto: Decrypt(password, secretKey)
-        Crypto-->>Library: Plaintext Password
+    loop For Each Configured Database (Sorted by ID)
+        Library->>Crypto: DecryptBytes(password, secretKey)
+        Crypto-->>Library: Plaintext Password ([]byte, zeroable)
         Library->>Registry: database.New(dbType)
         Registry-->>Library: Return Driver Instance
         Library->>Driver: Connect(ctx, dbConfig, password)
@@ -164,7 +165,7 @@ sequenceDiagram
 `dbchecker` relies on standard Go 1.24 runtime libraries, `secretprotector`, and modern third-party database drivers:
 
 * **Go 1.24+ Standard Library**: `crypto/aes`, `crypto/cipher`, `crypto/tls`, `crypto/x509`, `os` (`os.OpenRoot`), `sync`, `context`.
-* **Security Subsystem**: `criticalsys/secretprotector/pkg/libsecsecrets` (CSPRNG key generation & AES-256-GCM envelope encryption).
+* **Security Subsystem**: `secretprotector/pkg/libsecsecrets` (CSPRNG key generation & AES-256-GCM envelope encryption).
 * **MySQL**: `github.com/go-sql-driver/mysql` (Pure Go MySQL driver supporting TLS registration).
 * **PostgreSQL**: `github.com/lib/pq` (Pure Go PostgreSQL driver supporting URL DSN parameters for `sslmode`, `sslrootcert`, `sslcert`, and `sslkey`).
 * **MongoDB v2**: `go.mongodb.org/mongo-driver/v2` (Official MongoDB Go v2 driver supporting `options.Client().SetTLSConfig` and Extended JSON BSON commands).
