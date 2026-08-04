@@ -46,12 +46,42 @@ func GetFreePorts(count int) ([]int, error) {
 	return ports, nil
 }
 
-// GetDockerPrefix returns ["wsl", "env", "PATH=...", "docker"] on Windows and ["docker"] on Linux/macOS.
+// GetDockerPrefix returns ["wsl", "docker"] on Windows and ["docker"] on Linux/macOS.
 func GetDockerPrefix() []string {
 	if runtime.GOOS == "windows" {
-		return []string{"wsl", "env", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "docker"}
+		return []string{"wsl", "docker"}
 	}
 	return []string{"docker"}
+}
+
+// GetDockerHost returns the IP address where Docker containers are accessible.
+// On Windows with WSL2, containers bind to WSL's network, so we need the WSL IP.
+// On Linux or Docker Desktop with host networking, 127.0.0.1 works.
+func GetDockerHost() string {
+	if runtime.GOOS != "windows" {
+		return "127.0.0.1"
+	}
+
+	// On Windows, get WSL IP address
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// #nosec G204 -- Test helper gets WSL IP for Docker connectivity
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.CommandContext(ctx, "wsl", "hostname", "-I")
+	out, err := cmd.Output()
+	if err != nil {
+		// Fallback to localhost if WSL command fails
+		return "127.0.0.1"
+	}
+
+	// hostname -I returns space-separated IPs, first one is the main interface
+	ips := strings.Fields(strings.TrimSpace(string(out)))
+	if len(ips) > 0 {
+		return ips[0]
+	}
+
+	return "127.0.0.1"
 }
 
 // IsDockerAvailable verifies if Docker engine is running and responsive.
@@ -59,7 +89,8 @@ func IsDockerAvailable() bool {
 	prefix := GetDockerPrefix()
 	args := append(prefix[1:], "info")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// WSL networking can be slow on Windows, allow up to 30 seconds
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// #nosec G204 -- Test helper checks docker availability via system CLI
@@ -123,7 +154,8 @@ func RunEphemeralContainer(t *testing.T, image string, containerPort int, envVar
 	})
 
 	portArgs := append(prefix[1:], "port", containerName, fmt.Sprintf("%d/tcp", containerPort))
-	portCtx, portCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// WSL networking can be slow, allow 30 seconds
+	portCtx, portCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer portCancel()
 
 	// #nosec G204 -- Test helper queries docker port for container host mapping
@@ -163,7 +195,8 @@ func WaitForDatabase(ctx context.Context, driverType string, cfg config.Database
 	for time.Now().Before(deadline) {
 		db, err := database.New(driverType)
 		if err == nil {
-			connCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			// WSL networking can take 10+ seconds on Windows
+			connCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			if err := db.Connect(connCtx, cfg, password); err == nil {
 				if pingErr := db.Ping(connCtx); pingErr == nil {
 					_ = db.Close()
@@ -222,7 +255,7 @@ func StartLiveDatabaseCluster(t *testing.T, filterPrefix string) *LiveCluster {
 	PruneContainers(filterPrefix)
 
 	cluster := &LiveCluster{
-		DockerHost:   "127.0.0.1",
+		DockerHost:   GetDockerHost(),
 		MasterKeyHex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 	}
 
