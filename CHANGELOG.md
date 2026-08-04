@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.0.3] - 2026-08-04
+## [v1.0.4] - 2026-08-04
 
 ### Added
 * **DecryptBytes for Memory Hygiene**: Added `crypto.DecryptBytes()` returning `[]byte` instead of `string`, enabling password buffer zeroing via `crypto.ZeroBuffer()` after use. Passwords in Go strings cannot be zeroed from memory.
