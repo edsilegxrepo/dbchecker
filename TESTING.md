@@ -169,7 +169,7 @@ graph TD
 ### 4.5 Programmatic Library API
 | Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
 | :--- | :--- | :--- |
-| `TestLibraryCheck` | Tests programmatic `dbchecker.Check` library API across success, decryption fail, driver init fail, connect fail, ping fail, and healthcheck fail steps. | **PASS**: Correct `Result` and `FailedStep` returned. **FAIL**: Step mismatch. |
+| `TestLibraryCheck` | Tests programmatic `dbchecker.Check` library API across success, decryption fail, driver init fail, connect fail, ping fail, healthcheck fail, and empty password (no decryption) steps. | **PASS**: Correct `Result` and `FailedStep` returned. **FAIL**: Step mismatch. |
 | `TestLibraryCheckAll` | Tests concurrent batch check execution via `dbchecker.CheckAll` using functional options (`WithTimeout`, `WithConcurrency`), nil config, and empty config inputs. | **PASS**: Results array returned matching input DBs. **FAIL**: Concurrency race or missing results. |
 | `TestCheckAllDeterministicOrdering` | Verifies that `CheckAll` returns results sorted alphabetically by database ID for reproducible output across multiple runs. | **PASS**: Results consistently ordered alphabetically. **FAIL**: Random ordering between runs. |
 | `TestResultJSONSerialization` | Verifies JSON serialization uses `duration_ms` (milliseconds) and `error` (string) fields instead of raw `Duration` (nanoseconds) and `Err` (empty object). | **PASS**: JSON contains `duration_ms` and readable `error` string. **FAIL**: Nanoseconds or empty error object. |

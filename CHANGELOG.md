@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.5] - 2026-08-04
+
+### Fixed
+* **Empty Password Skip Decryption**: `Check()` now skips password decryption when `Password` field is empty (e.g., SQLite without authentication), avoiding "invalid key" errors for databases that don't require credentials.
+
+---
+
 ## [v1.0.4] - 2026-08-04
 
 ### Added

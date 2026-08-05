@@ -59,18 +59,21 @@ func Check(parentCtx context.Context, id string, dbConfig config.DatabaseConfig,
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
-	// 1. Decrypt password (use DecryptBytes so we can zero the buffer after use)
-	decryptedPasswordBytes, err := crypto.DecryptBytes(ctx, dbConfig.Password, secretKey)
-	if err != nil {
-		res.Duration = time.Since(startTime)
-		res.FailedStep = StepDecryption
-		res.ExitCode = MapStepToExitCode(res.FailedStep)
-		res.Err = fmt.Errorf("password decryption failed for %s: %w", id, err)
-		finalizeResult(&res)
-		return res
+	// 1. Decrypt password (skip if empty - e.g., SQLite with no auth)
+	var decryptedPassword string
+	if dbConfig.Password != "" {
+		decryptedPasswordBytes, err := crypto.DecryptBytes(ctx, dbConfig.Password, secretKey)
+		if err != nil {
+			res.Duration = time.Since(startTime)
+			res.FailedStep = StepDecryption
+			res.ExitCode = MapStepToExitCode(res.FailedStep)
+			res.Err = fmt.Errorf("password decryption failed for %s: %w", id, err)
+			finalizeResult(&res)
+			return res
+		}
+		defer crypto.ZeroBuffer(decryptedPasswordBytes)
+		decryptedPassword = string(decryptedPasswordBytes)
 	}
-	defer crypto.ZeroBuffer(decryptedPasswordBytes)
-	decryptedPassword := string(decryptedPasswordBytes)
 
 	// 2. Initialize database driver
 	db, err := database.New(dbConfig.Type)

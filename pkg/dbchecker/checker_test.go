@@ -111,6 +111,13 @@ func TestLibraryCheck(t *testing.T) {
 	if resFailHealth.Success || resFailHealth.FailedStep != dbchecker.StepHealthCheck {
 		t.Errorf("Expected StepHealthCheck failure, got: %+v", resFailHealth)
 	}
+
+	// Test Empty Password (e.g., SQLite without authentication)
+	cfgNoPass := config.DatabaseConfig{Type: "mock_lib_ok", Password: ""}
+	resNoPass := dbchecker.Check(ctx, "no_pass_db", cfgNoPass, nil, 2*time.Second)
+	if !resNoPass.Success || resNoPass.FailedStep != dbchecker.StepNone {
+		t.Errorf("Expected success with empty password (no decryption needed), got: %+v", resNoPass)
+	}
 }
 
 func TestLibraryCheckAll(t *testing.T) {
