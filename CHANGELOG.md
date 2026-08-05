@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.7] - 2026-08-04
+
+### Changed
+* **v1:gcm: Encrypted Prefix**: `crypto.Encrypt()` now adds `v1:gcm:` prefix to encrypted values, matching secretprotector CLI format. `crypto.Decrypt()`/`crypto.DecryptBytes()` accept values with or without prefix for backwards compatibility. Added `crypto.IsEncrypted()` helper to check for the prefix.
+
+---
+
 ## [v1.0.6] - 2026-08-04
 
 ### Changed

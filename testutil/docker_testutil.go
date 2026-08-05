@@ -315,13 +315,13 @@ func StartLiveDatabaseCluster(t *testing.T, filterPrefix string) *LiveCluster {
 	if err != nil {
 		t.Fatalf("Failed to encrypt secretpass: %v", err)
 	}
-	cluster.EncryptedSecretPass = encSecretPass
+	cluster.EncryptedSecretPass = "v1:gcm:" + encSecretPass
 
 	encMsPass, err := libsecsecrets.Encrypt(context.Background(), "SecretPass2026!", keyBytes)
 	if err != nil {
 		t.Fatalf("Failed to encrypt SecretPass2026!: %v", err)
 	}
-	cluster.EncryptedMsPass = encMsPass
+	cluster.EncryptedMsPass = "v1:gcm:" + encMsPass
 
 	var wgLaunch sync.WaitGroup
 	wgLaunch.Add(5)
@@ -415,11 +415,11 @@ func StartLiveDatabaseCluster(t *testing.T, filterPrefix string) *LiveCluster {
 		HealthQuery: "SELECT 1 FROM DUAL",
 	}
 
-	cluster.PgDSN = fmt.Sprintf("postgres://testuser:%s@%s:%d/testdb?sslmode=disable", url.PathEscape(encSecretPass), cluster.DockerHost, cluster.PgPort)
-	cluster.MysqlDSN = fmt.Sprintf("root:%s@tcp(%s:%d)/testdb", url.PathEscape(encSecretPass), cluster.DockerHost, cluster.MysqlPort)
-	cluster.MongoDSN = fmt.Sprintf("mongodb://testuser:%s@%s:%d/testdb?authSource=admin", url.PathEscape(encSecretPass), cluster.DockerHost, cluster.MongoPort)
-	cluster.MssqlDSN = fmt.Sprintf("sqlserver://sa:%s@%s:%d?database=master&encrypt=disable", url.PathEscape(encMsPass), cluster.DockerHost, cluster.MssqlPort)
-	cluster.OracleDSN = fmt.Sprintf("oracle://system:%s@%s:%d/XEPDB1", url.PathEscape(encMsPass), cluster.DockerHost, cluster.OraclePort)
+	cluster.PgDSN = fmt.Sprintf("postgres://testuser:%s@%s:%d/testdb?sslmode=disable", url.PathEscape(cluster.EncryptedSecretPass), cluster.DockerHost, cluster.PgPort)
+	cluster.MysqlDSN = fmt.Sprintf("root:%s@tcp(%s:%d)/testdb", url.PathEscape(cluster.EncryptedSecretPass), cluster.DockerHost, cluster.MysqlPort)
+	cluster.MongoDSN = fmt.Sprintf("mongodb://testuser:%s@%s:%d/testdb?authSource=admin", url.PathEscape(cluster.EncryptedSecretPass), cluster.DockerHost, cluster.MongoPort)
+	cluster.MssqlDSN = fmt.Sprintf("sqlserver://sa:%s@%s:%d?database=master&encrypt=disable", url.PathEscape(cluster.EncryptedMsPass), cluster.DockerHost, cluster.MssqlPort)
+	cluster.OracleDSN = fmt.Sprintf("oracle://system:%s@%s:%d/XEPDB1", url.PathEscape(cluster.EncryptedMsPass), cluster.DockerHost, cluster.OraclePort)
 
 	t.Log("Waiting for all 5 database containers to report ready status concurrently...")
 	var wgReady sync.WaitGroup
