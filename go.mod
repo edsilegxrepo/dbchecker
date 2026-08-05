@@ -3,7 +3,7 @@ module github.com/edsilegxrepo/dbchecker
 go 1.25.7
 
 require (
-	github.com/edsilegxrepo/secretprotector v0.0.3
+	github.com/edsilegxrepo/secretprotector v0.0.4
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.49

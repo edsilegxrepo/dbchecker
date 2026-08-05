@@ -315,13 +315,13 @@ func StartLiveDatabaseCluster(t *testing.T, filterPrefix string) *LiveCluster {
 	if err != nil {
 		t.Fatalf("Failed to encrypt secretpass: %v", err)
 	}
-	cluster.EncryptedSecretPass = "v1:gcm:" + encSecretPass
+	cluster.EncryptedSecretPass = encSecretPass
 
 	encMsPass, err := libsecsecrets.Encrypt(context.Background(), "SecretPass2026!", keyBytes)
 	if err != nil {
 		t.Fatalf("Failed to encrypt SecretPass2026!: %v", err)
 	}
-	cluster.EncryptedMsPass = "v1:gcm:" + encMsPass
+	cluster.EncryptedMsPass = encMsPass
 
 	var wgLaunch sync.WaitGroup
 	wgLaunch.Add(5)
