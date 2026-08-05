@@ -46,21 +46,39 @@ func init() {
 	lastAllocatedPort.Store(35000)
 }
 
-// GetFreePorts allocates 'count' thread-safe, monotonically increasing free local TCP ports.
-func GetFreePorts(count int) ([]int, error) {
+// GetFreePorts allocates 'count' free local TCP ports using kernel assignment (port 0).
+// Returns ports and listeners. Callers MUST close the listeners when ready to use the ports.
+// This avoids TOCTOU race conditions in parallel tests.
+func GetFreePorts(count int) ([]int, []net.Listener, error) {
 	ports := make([]int, 0, count)
-	for len(ports) < count {
-		candidate := int(lastAllocatedPort.Add(1))
-		if candidate > 60000 {
-			lastAllocatedPort.Store(35000)
-			candidate = 35001
-		}
+	listeners := make([]net.Listener, 0, count)
 
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", candidate))
-		if err == nil {
-			_ = ln.Close()
-			ports = append(ports, candidate)
+	for i := 0; i < count; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			// Close any listeners we already opened
+			for _, l := range listeners {
+				_ = l.Close()
+			}
+			return nil, nil, fmt.Errorf("failed to allocate free port: %w", err)
 		}
+		listeners = append(listeners, ln)
+		ports = append(ports, ln.Addr().(*net.TCPAddr).Port)
+	}
+
+	return ports, listeners, nil
+}
+
+// GetFreePortsAutoClose allocates 'count' free local TCP ports and immediately closes the listeners.
+// WARNING: This has a TOCTOU race condition - use GetFreePorts for parallel tests.
+// Only use this when you need ports for external processes (like Docker containers).
+func GetFreePortsAutoClose(count int) ([]int, error) {
+	ports, listeners, err := GetFreePorts(count)
+	if err != nil {
+		return nil, err
+	}
+	for _, ln := range listeners {
+		_ = ln.Close()
 	}
 	return ports, nil
 }

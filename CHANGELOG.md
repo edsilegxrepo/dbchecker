@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.6] - 2026-08-04
+
+### Changed
+* **GetFreePorts Race-Safe API**: `testutil.GetFreePorts()` now returns `(ports, listeners, error)` instead of `(ports, error)`. Callers must close listeners when ready to use ports, eliminating TOCTOU race conditions in parallel tests. Added `GetFreePortsAutoClose()` for Docker container port allocation where race conditions are acceptable.
+
+---
+
 ## [v1.0.5] - 2026-08-04
 
 ### Fixed
