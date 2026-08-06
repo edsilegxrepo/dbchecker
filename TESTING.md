@@ -16,6 +16,7 @@ The `dbchecker` test suite is built according to the following core software eng
   2. **Mock Driver Integration Tests**: Custom `MockTestDB` and `MockLibDB` drivers simulate network drops, ping failures, query syntax errors, and decryption failures.
   3. **Reusable Test Utility Infrastructure (`testutil`)**: Decoupled helper package providing container lifecycle orchestration (`StartLiveDatabaseCluster`, `WaitForDatabase`, `PruneContainers`, `GetDockerPrefix`, `GetDockerHost`, `IsDockerAvailable`). Handles WSL2 networking on Windows (containers bind to WSL IP, not localhost).
   4. **Isolated Live Container & mTLS Integration Suite (`test/` + `//go:build integration`)**: Ephemeral multi-container harness (**PostgreSQL 18**, **MySQL 8.4**, **MongoDB 8.0**, **MSSQL**, **Oracle 21c Slim**) with mTLS verification stored in `test/` package under build tag `//go:build integration`.
+  5. **Stress Tests (`test/` + `//go:build stress`)**: Load testing with concurrent database connections against all 6 database engines, connection churn validation, and WSL stress tests on Windows.
 
 ---
 
@@ -193,6 +194,14 @@ graph TD
 | `TestLiveMongoDBMTLS` | Live mTLS integration test in `test/`: uses `testutil` helpers to spin up MongoDB 8.0 container enforcing mTLS (`--tlsMode requireTLS`), verifies `verify-full` mode with trusted client cert, and rejects rogue CA client certs. | **PASS**: Full mTLS handshake, query execution, and cert rejection succeed. **SKIP**: Skipped if Docker/WSL engine not active. |
 | `TestLiveOracleWalletMTLSValidation` | Live mTLS integration test in `test/`: verifies Oracle DB connectivity configuration both without mTLS (`disable` mode) and with mTLS (`verify-full` mode with TCPS Oracle Wallets containing `cwallet.sso`). | **PASS**: DSN construction, wallet path validation, and missing wallet rejection succeed. |
 | `TestLiveExternalDBIntegration` | Opt-in integration test harness in `test/` that connects, pings, and queries live remote MySQL, Postgres, and MongoDB servers when `LIVE_*` env vars are configured. | **PASS**: Real network connection and query succeed. **SKIP**: Skipped if env vars not set. |
+
+### 4.8 Stress Tests (`test/stress_test.go`, `//go:build stress`)
+| Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
+| :--- | :--- | :--- |
+| `TestStressSQLite` | High-concurrency SQLite Check() calls without Docker. Tests 200-500 iterations with 50-100 concurrent connections. | **PASS**: >90% success rate, P99 latency <200ms. **FAIL**: Error rate or latency threshold exceeded. |
+| `TestStressDockerContainers` | Concurrent connections against all 6 database engines (SQLite, PostgreSQL, MySQL, MongoDB, MSSQL, Oracle). | **PASS**: >90% success rate per database. **FAIL**: Error rate >10% for any engine. |
+| `TestStressConnectionChurn` | Rapid connect/disconnect cycles to validate driver resource cleanup. Tests 400-1000 cycles. | **PASS**: >90% success rate, high throughput. **FAIL**: Resource leaks or errors. |
+| `TestStressWSL` | Re-runs SQLite and connection churn tests inside WSL with aggressive Linux thresholds. Windows only. | **PASS**: WSL tests pass with Linux config. **SKIP**: Skipped on Linux or with `-skip-wsl` flag. |
 
 ---
 
@@ -399,13 +408,34 @@ To guarantee real-world database engine compatibility, the test suite integrates
 
 ## 8. How to Run the Tests
 
-Standard `go test` commands execute identically across Windows (PowerShell/CMD), Linux, and macOS.
+### Quick Reference
 
 ```bash
-# Quick Start: Use the test runner script (Bash/WSL)
-./test/run_tests.sh              # Unit tests only
-./test/run_tests.sh --integration  # Unit + integration tests (requires Docker)
+# Unit tests only (fast, no dependencies)
+go test ./...
 
+# Integration tests (requires Docker)
+go test -tags=integration ./test/... -timeout 15m
+
+# Stress tests (includes WSL on Windows by default)
+go test -tags=stress ./test/... -timeout 5m
+
+# All tests
+go test -tags=integration,stress ./test/... -timeout 20m
+```
+
+### Test Runner Script
+
+```bash
+./test/run_tests.sh           # Unit tests only
+./test/run_tests.sh int       # Integration tests (Docker required)
+./test/run_tests.sh stress    # Stress tests
+./test/run_tests.sh all       # All tests
+```
+
+### Detailed Commands
+
+```bash
 # 1. Run all unit and mock integration tests across all packages (<1s execution)
 go test -v ./...
 
@@ -416,10 +446,10 @@ go test -v -short ./...
 go test -coverprofile c.out ./...
 go tool cover -html c.out
 
-# 4. Run Live 5-Database Ephemeral Container Test Suite (Requires Docker & integration build tag)
+# 4. Run Live 6-Database Ephemeral Container Test Suite (Requires Docker & integration build tag)
 go test -tags=integration -v -count=1 -run TestLiveDockerContainers ./test
 
-# 5. Run Live 5-Database Container Suite (Developer Iteration Mode: Keep/Cache images locally)
+# 5. Run Live Container Suite (Developer Iteration Mode: Keep/Cache images locally)
 PRESERVE_DOCKER_IMAGES=1 go test -tags=integration -v -count=1 -run TestLiveDockerContainers ./test
 
 # 6. Run Live mTLS Security Test Suite (PostgreSQL 18, MySQL 8.4, and MongoDB 8.0 verify-full mTLS)
@@ -427,9 +457,79 @@ PRESERVE_DOCKER_IMAGES=1 go test -tags=integration -v -count=1 -run "TestLive(Po
 
 # 7. Run live remote database integration tests (when external servers are available)
 LIVE_MYSQL_HOST="127.0.0.1" LIVE_MYSQL_USER="root" LIVE_MYSQL_PASS="secret" LIVE_MYSQL_DB="testdb" go test -tags=integration -v -run TestLiveExternalDBIntegration ./test
+
+# 8. Run stress tests (all 6 databases under load)
+go test -tags=stress -v ./test/... -timeout 5m
+
+# 9. Run stress tests without WSL (Windows only)
+go test -tags=stress -skip-wsl -v ./test/... -timeout 3m
 ```
 
-### OS Shell Syntax Differences
+---
+
+## 9. CI Matrix
+
+### Recommended CI Configuration
+
+| Platform | Unit | Integration | Integration (Docker) | Stress |
+|----------|------|-------------|----------------------|--------|
+| **Linux** | ✅ | ✅ | ✅ | ✅ |
+| **Windows** | ✅ | ✅ | ✅ (Docker Desktop) | ✅ (+ WSL) |
+| **macOS** | ✅ | ✅ | ✅ (Docker Desktop) | ✅ |
+
+### GitHub Actions Example
+
+```yaml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: go test -race -coverprofile=coverage.out ./...
+      - uses: codecov/codecov-action@v4
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: go test -tags=integration -v ./test/... -timeout 15m
+
+  stress-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: go test -tags=stress -v ./test/... -timeout 5m
+        if: matrix.os == 'ubuntu-latest'
+      - run: go test -tags=stress -skip-wsl -v ./test/... -timeout 5m
+        if: matrix.os == 'windows-latest'
+```
+
+### Performance Thresholds
+
+| Environment | Concurrency | Iterations | Max Error Rate | Max P99 Latency |
+|-------------|-------------|------------|----------------|-----------------|
+| **Windows** | 50 | 200 | 5% | 200ms |
+| **Linux/WSL** | 100 | 500 | 1% | 150ms |
+
+---
+
+## 10. OS Shell Syntax Differences
 
 The only difference between Bash and PowerShell is the syntax for passing inline environment variables:
 
@@ -440,7 +540,7 @@ The only difference between Bash and PowerShell is the syntax for passing inline
 
 ---
 
-## 9. Maintenance and Troubleshooting
+## 11. Maintenance and Troubleshooting
 
 ### Common Testing Issues & Solutions
 
