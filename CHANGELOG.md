@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.8] - 2026-08-05
+
+### Added
+* **Stress Test Suite**: New `test/stress_test.go` with concurrent database load testing for all 6 database engines
+* **SQLite Stress Test**: High-concurrency Check() calls without Docker (200-500 iterations, 50-100 concurrent)
+* **Docker Stress Test**: All 6 databases under concurrent load (SQLite, PostgreSQL, MySQL, MongoDB, MSSQL, Oracle)
+* **Connection Churn Test**: Rapid connect/disconnect cycles to validate driver resource cleanup
+* **WSL Stress Tests**: On Windows, stress tests automatically run in WSL with aggressive Linux thresholds (disable with `-skip-wsl`)
+* **Environment-Adaptive Thresholds**: Windows (50 concurrency, 200ms P99) vs Linux (100 concurrency, 150ms P99)
+* **CI Matrix Documentation**: Added GitHub Actions example and platform recommendations to TESTING.md
+
+### Changed
+* **run_tests.sh Updated**: Added `stress` option for stress tests (`./test/run_tests.sh stress`)
+
+---
+
 ## [v1.0.7] - 2026-08-04
 
 ### Changed
