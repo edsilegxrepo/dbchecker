@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/microsoft/go-mssqldb v1.10.0
 	github.com/sijms/go-ora/v2 v2.9.0
-	go.mongodb.org/mongo-driver/v2 v2.8.0
+	go.mongodb.org/mongo-driver/v2 v2.8.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
