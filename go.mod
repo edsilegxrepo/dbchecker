@@ -6,7 +6,7 @@ require (
 	github.com/edsilegxrepo/secretprotector v0.0.4
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-sqlite3 v1.14.49
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/microsoft/go-mssqldb v1.10.0
 	github.com/sijms/go-ora/v2 v2.9.0
 	go.mongodb.org/mongo-driver/v2 v2.8.0
