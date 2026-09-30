@@ -34,35 +34,33 @@ import (
 	"github.com/edsilegxrepo/dbchecker/testutil"
 )
 
-var (
-	skipWSL = flag.Bool("skip-wsl", false, "Skip WSL stress tests (Windows only)")
-)
+var skipWSL = flag.Bool("skip-wsl", false, "Skip WSL stress tests (Windows only)")
 
 // stressConfig holds environment-specific thresholds
 type stressConfig struct {
-	name            string
-	concurrency     int
-	iterations      int
-	maxErrorRate    float64
-	maxP99Duration  time.Duration
+	name           string
+	concurrency    int
+	iterations     int
+	maxErrorRate   float64
+	maxP99Duration time.Duration
 }
 
 func getStressConfig() stressConfig {
 	if runtime.GOOS == "linux" {
 		return stressConfig{
-			name:            "Linux",
-			concurrency:     100,
-			iterations:      500,
-			maxErrorRate:    0.01, // 1%
-			maxP99Duration:  150 * time.Millisecond,
+			name:           "Linux",
+			concurrency:    100,
+			iterations:     500,
+			maxErrorRate:   0.01, // 1%
+			maxP99Duration: 150 * time.Millisecond,
 		}
 	}
 	return stressConfig{
-		name:            "Windows",
-		concurrency:     50,
-		iterations:      200,
-		maxErrorRate:    0.05, // 5%
-		maxP99Duration:  200 * time.Millisecond,
+		name:           "Windows",
+		concurrency:    50,
+		iterations:     200,
+		maxErrorRate:   0.05, // 5%
+		maxP99Duration: 200 * time.Millisecond,
 	}
 }
 
