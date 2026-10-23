@@ -1,0 +1,18 @@
+{
+  "name": "dbchecker",
+  "version": "1.0.8",
+  "release": "1",
+  "channel": "xg",
+  "entrypoint": "./cmd/dbchecker",
+  "version_pkg": "main.version",
+  "build_pkg": "",
+  "summary": "Relational database connectivity and health diagnostics prober",
+  "description": "Probes MySQL, PostgreSQL, Oracle, SQLite, and MSSQL database server health, latency, and schema connectivity.",
+  "maintainer": "Mis Center <support@criticalsys.net>",
+  "license": "MIT",
+  "url": "https://criticalsys.net",
+  "section": "utils",
+  "priority": "optional",
+  "install_path": "/usr/bin",
+  "cgo": false
+}
